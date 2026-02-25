@@ -8,8 +8,8 @@ import { Send, Square } from "lucide-react";
 export function InputBar() {
   const [input, setInput] = useState("");
   const textareaRef = useRef<HTMLTextAreaElement>(null);
-  const { isStreaming, addMessage, finalizeStream } = useChatStore();
-  const { sendMessage } = useWebSocket();
+  const { isStreaming, addMessage } = useChatStore();
+  const { sendMessage, stopStreaming } = useWebSocket();
 
   const handleSend = useCallback(() => {
     const text = input.trim();
@@ -63,18 +63,27 @@ export function InputBar() {
           style={{ maxHeight: 200 }}
           disabled={isStreaming}
         />
-        <button
-          onClick={isStreaming ? finalizeStream : handleSend}
-          disabled={!isStreaming && !input.trim()}
-          className="p-2 rounded-lg transition-colors disabled:opacity-40"
-          style={{ color: (isStreaming || input.trim()) ? "var(--accent)" : "var(--text-secondary)" }}
-        >
-          {isStreaming ? (
-            <Square size={18} />
-          ) : (
+        {isStreaming ? (
+          <div className="relative w-9 h-9 flex items-center justify-center flex-shrink-0">
+            <div className="absolute inset-0 rounded-full border-2 border-t-transparent animate-spin" style={{ borderColor: "var(--accent)", borderTopColor: "transparent" }} />
+            <button
+              onClick={stopStreaming}
+              className="z-10 flex items-center justify-center"
+              style={{ color: "var(--accent)" }}
+            >
+              <Square size={14} fill="currentColor" />
+            </button>
+          </div>
+        ) : (
+          <button
+            onClick={handleSend}
+            disabled={!input.trim()}
+            className="p-2 rounded-lg transition-colors disabled:opacity-40"
+            style={{ color: input.trim() ? "var(--accent)" : "var(--text-secondary)" }}
+          >
             <Send size={18} />
-          )}
-        </button>
+          </button>
+        )}
       </div>
       <p className="text-xs text-center mt-2" style={{ color: "var(--text-secondary)" }}>
         AnyWork runs agents in isolated containers. Your workspace persists between sessions.

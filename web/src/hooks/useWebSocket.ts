@@ -8,6 +8,7 @@ import { WS_URL } from "@/lib/api";
 export function useWebSocket() {
   const wsRef = useRef<WebSocket | null>(null);
   const reconnectTimer = useRef<NodeJS.Timeout | null>(null);
+  const stoppedRef = useRef(false);
 
   const {
     activeSessionId,
@@ -36,23 +37,26 @@ export function useWebSocket() {
 
       switch (msg.type) {
         case "text":
-          appendStreamContent(msg.content || "");
+          if (!stoppedRef.current) appendStreamContent(msg.content || "");
           break;
 
         case "tool_call":
-          appendToolCall(msg.content || "");
+          if (!stoppedRef.current) appendToolCall(msg.content || "");
           break;
 
         case "tool_result":
-          appendToolResult(msg.content || "");
+          if (!stoppedRef.current) appendToolResult(msg.content || "");
           break;
 
         case "error":
-          appendStreamContent(`\n\n**Error:** ${msg.content}\n`);
-          finalizeStream();
+          if (!stoppedRef.current) {
+            appendStreamContent(`\n\n**Error:** ${msg.content}\n`);
+            finalizeStream();
+          }
           break;
 
         case "done":
+          stoppedRef.current = false;
           finalizeStream();
           break;
 
@@ -110,6 +114,11 @@ export function useWebSocket() {
     [setStreaming]
   );
 
+  const stopStreaming = useCallback(() => {
+    stoppedRef.current = true;
+    finalizeStream();
+  }, [finalizeStream]);
+
   // Connect on mount
   useEffect(() => {
     connect();
@@ -129,5 +138,5 @@ export function useWebSocket() {
     return () => clearInterval(interval);
   }, []);
 
-  return { sendMessage, isConnected: wsRef.current?.readyState === WebSocket.OPEN };
+  return { sendMessage, stopStreaming, isConnected: wsRef.current?.readyState === WebSocket.OPEN };
 }
