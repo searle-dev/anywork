@@ -7,7 +7,7 @@ import { InputBar } from "./InputBar";
 import { Zap } from "lucide-react";
 
 export function ChatPanel() {
-  const { messages, isStreaming, streamingContent, activeSessionId } = useChatStore();
+  const { messages, isStreaming, streamingContent, pendingToolCalls, activeSessionId } = useChatStore();
   const scrollRef = useRef<HTMLDivElement>(null);
 
   // Auto-scroll to bottom
@@ -49,13 +49,14 @@ export function ChatPanel() {
             {messages.map((msg) => (
               <MessageBubble key={msg.id} message={msg} />
             ))}
-            {isStreaming && streamingContent && (
+            {isStreaming && (pendingToolCalls.length > 0 || streamingContent) && (
               <MessageBubble
                 message={{
                   id: "streaming",
                   role: "assistant",
                   content: streamingContent,
                   timestamp: new Date().toISOString(),
+                  toolCalls: pendingToolCalls.length > 0 ? pendingToolCalls : undefined,
                 }}
                 isStreaming
               />

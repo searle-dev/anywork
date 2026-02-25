@@ -12,6 +12,8 @@ export function useWebSocket() {
   const {
     activeSessionId,
     appendStreamContent,
+    appendToolCall,
+    appendToolResult,
     finalizeStream,
     setStreaming,
     confirmSession,
@@ -38,11 +40,11 @@ export function useWebSocket() {
           break;
 
         case "tool_call":
-          appendStreamContent(`\n\n> **Tool:** ${msg.content}\n`);
+          appendToolCall(msg.content || "");
           break;
 
         case "tool_result":
-          appendStreamContent(`\n> **Result:** ${msg.content}\n\n`);
+          appendToolResult(msg.content || "");
           break;
 
         case "error":
@@ -85,7 +87,7 @@ export function useWebSocket() {
     ws.onerror = (err) => {
       console.error("[WS] Error:", err);
     };
-  }, [appendStreamContent, finalizeStream, confirmSession, addSession, updateSessionTitle]);
+  }, [appendStreamContent, appendToolCall, appendToolResult, finalizeStream, confirmSession, addSession, updateSessionTitle]);
 
   const sendMessage = useCallback(
     (message: string) => {

@@ -1,7 +1,7 @@
 "use client";
 
 import { create } from "zustand";
-import type { Session, ChatMessage } from "@/lib/types";
+import type { Session, ChatMessage, ToolCall } from "@/lib/types";
 
 interface ChatState {
   // Sessions
@@ -14,6 +14,7 @@ interface ChatState {
   // Streaming state
   isStreaming: boolean;
   streamingContent: string;
+  pendingToolCalls: ToolCall[];
 
   // Actions
   setSessions: (sessions: Session[]) => void;
@@ -23,6 +24,8 @@ interface ChatState {
   addMessage: (msg: ChatMessage) => void;
   setStreaming: (val: boolean) => void;
   appendStreamContent: (text: string) => void;
+  appendToolCall: (content: string) => void;
+  appendToolResult: (content: string) => void;
   finalizeStream: () => void;
   setMessages: (msgs: ChatMessage[]) => void;
   updateSessionTitle: (id: string, title: string) => void;
@@ -34,10 +37,11 @@ export const useChatStore = create<ChatState>((set, get) => ({
   messages: [],
   isStreaming: false,
   streamingContent: "",
+  pendingToolCalls: [],
 
   setSessions: (sessions) => set({ sessions }),
   // User explicitly switches to a session → clear messages
-  setActiveSession: (id) => set({ activeSessionId: id, messages: [], streamingContent: "" }),
+  setActiveSession: (id) => set({ activeSessionId: id, messages: [], streamingContent: "", pendingToolCalls: [] }),
 
   // Server confirmed a new session ID for current chat → just update ID, keep messages
   confirmSession: (id) => set({ activeSessionId: id }),
@@ -57,18 +61,36 @@ export const useChatStore = create<ChatState>((set, get) => ({
   appendStreamContent: (text) =>
     set((s) => ({ streamingContent: s.streamingContent + text })),
 
+  appendToolCall: (content) =>
+    set((s) => ({
+      pendingToolCalls: [
+        ...s.pendingToolCalls,
+        { name: content, status: "running" as const },
+      ],
+    })),
+
+  appendToolResult: (content) =>
+    set((s) => {
+      const calls = [...s.pendingToolCalls];
+      const last = calls.findLastIndex((t) => t.status === "running");
+      if (last !== -1) calls[last] = { ...calls[last], status: "done" as const, output: content };
+      return { pendingToolCalls: calls };
+    }),
+
   finalizeStream: () => {
-    const { streamingContent, messages } = get();
-    if (streamingContent) {
+    const { streamingContent, pendingToolCalls, messages } = get();
+    if (streamingContent || pendingToolCalls.length > 0) {
       const assistantMsg: ChatMessage = {
         id: `msg-${Date.now()}`,
         role: "assistant",
         content: streamingContent,
         timestamp: new Date().toISOString(),
+        toolCalls: pendingToolCalls.length > 0 ? pendingToolCalls : undefined,
       };
       set({
         messages: [...messages, assistantMsg],
         streamingContent: "",
+        pendingToolCalls: [],
         isStreaming: false,
       });
     } else {
