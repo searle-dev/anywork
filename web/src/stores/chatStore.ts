@@ -80,12 +80,15 @@ export const useChatStore = create<ChatState>((set, get) => ({
   finalizeStream: () => {
     const { streamingContent, pendingToolCalls, messages } = get();
     if (streamingContent || pendingToolCalls.length > 0) {
+      const completedToolCalls = pendingToolCalls.map((tc) =>
+        tc.status === "running" ? { ...tc, status: "done" as const } : tc
+      );
       const assistantMsg: ChatMessage = {
         id: `msg-${Date.now()}`,
         role: "assistant",
         content: streamingContent,
         timestamp: new Date().toISOString(),
-        toolCalls: pendingToolCalls.length > 0 ? pendingToolCalls : undefined,
+        toolCalls: completedToolCalls.length > 0 ? completedToolCalls : undefined,
       };
       set({
         messages: [...messages, assistantMsg],
