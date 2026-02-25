@@ -3,19 +3,18 @@
 import { useState, useRef, useCallback, KeyboardEvent } from "react";
 import { useChatStore } from "@/stores/chatStore";
 import { useWebSocket } from "@/hooks/useWebSocket";
-import { Send, Loader2 } from "lucide-react";
+import { Send, Square } from "lucide-react";
 
 export function InputBar() {
   const [input, setInput] = useState("");
   const textareaRef = useRef<HTMLTextAreaElement>(null);
-  const { isStreaming, addMessage } = useChatStore();
+  const { isStreaming, addMessage, finalizeStream } = useChatStore();
   const { sendMessage } = useWebSocket();
 
   const handleSend = useCallback(() => {
     const text = input.trim();
     if (!text || isStreaming) return;
 
-    // Add user message to UI immediately
     addMessage({
       id: `msg-${Date.now()}`,
       role: "user",
@@ -23,24 +22,23 @@ export function InputBar() {
       timestamp: new Date().toISOString(),
     });
 
-    // Send via WebSocket
     sendMessage(text);
     setInput("");
 
-    // Reset textarea height
     if (textareaRef.current) {
       textareaRef.current.style.height = "auto";
     }
   }, [input, isStreaming, addMessage, sendMessage]);
 
   const handleKeyDown = (e: KeyboardEvent) => {
+    // Ignore Enter during IME composition (Chinese/Japanese/Korean input)
+    if (e.nativeEvent.isComposing) return;
     if (e.key === "Enter" && !e.shiftKey) {
       e.preventDefault();
       handleSend();
     }
   };
 
-  // Auto-resize textarea
   const handleInput = (e: React.ChangeEvent<HTMLTextAreaElement>) => {
     setInput(e.target.value);
     const el = e.target;
@@ -66,13 +64,13 @@ export function InputBar() {
           disabled={isStreaming}
         />
         <button
-          onClick={handleSend}
-          disabled={!input.trim() || isStreaming}
+          onClick={isStreaming ? finalizeStream : handleSend}
+          disabled={!isStreaming && !input.trim()}
           className="p-2 rounded-lg transition-colors disabled:opacity-40"
-          style={{ color: input.trim() && !isStreaming ? "var(--accent)" : "var(--text-secondary)" }}
+          style={{ color: (isStreaming || input.trim()) ? "var(--accent)" : "var(--text-secondary)" }}
         >
           {isStreaming ? (
-            <Loader2 size={18} className="animate-spin" />
+            <Square size={18} />
           ) : (
             <Send size={18} />
           )}
