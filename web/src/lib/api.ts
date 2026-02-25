@@ -26,6 +26,10 @@ export async function getWorkspaceFile(name: "soul" | "agents"): Promise<string>
   return data.content ?? "";
 }
 
+export async function deleteSession(sessionId: string): Promise<void> {
+  await fetch(`${API_URL}/api/sessions/${sessionId}`, { method: "DELETE" });
+}
+
 export async function updateWorkspaceFile(name: "soul" | "agents", content: string): Promise<void> {
   await fetch(`${API_URL}/api/workspace/${name}`, {
     method: "PUT",

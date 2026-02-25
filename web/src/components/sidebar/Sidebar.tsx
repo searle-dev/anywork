@@ -2,16 +2,22 @@
 
 import { useState } from "react";
 import { useChatStore } from "@/stores/chatStore";
-import { fetchSessionMessages } from "@/lib/api";
-import { Plus, MessageSquare, Zap, Settings } from "lucide-react";
+import { fetchSessionMessages, deleteSession } from "@/lib/api";
+import { Plus, MessageSquare, Zap, Settings, Trash2 } from "lucide-react";
 import { WorkspaceEditor } from "@/components/settings/WorkspaceEditor";
 
 export function Sidebar() {
-  const { sessions, activeSessionId, setActiveSession, setMessages } = useChatStore();
+  const { sessions, activeSessionId, setActiveSession, setMessages, removeSession } = useChatStore();
   const [editorOpen, setEditorOpen] = useState(false);
 
   const handleNewChat = () => {
     setActiveSession(null);
+  };
+
+  const handleDeleteSession = async (e: React.MouseEvent, sessionId: string) => {
+    e.stopPropagation();
+    removeSession(sessionId);
+    await deleteSession(sessionId);
   };
 
   const handleSelectSession = async (sessionId: string) => {
@@ -60,18 +66,25 @@ export function Sidebar() {
       {/* Session list */}
       <div className="flex-1 overflow-y-auto px-2">
         {sessions.map((session) => (
-          <button
+          <div
             key={session.id}
-            onClick={() => handleSelectSession(session.id)}
-            className={`w-full flex items-center gap-2 px-3 py-2 rounded-lg text-sm mb-0.5 transition-colors text-left truncate ${
+            className={`group relative flex items-center gap-2 px-3 py-2 rounded-lg text-sm mb-0.5 transition-colors cursor-pointer ${
               activeSessionId === session.id
                 ? "bg-[var(--bg-tertiary)]"
                 : "hover:bg-[var(--bg-tertiary)]"
             }`}
+            onClick={() => handleSelectSession(session.id)}
           >
             <MessageSquare size={14} style={{ color: "var(--text-secondary)", flexShrink: 0 }} />
-            <span className="truncate">{session.title}</span>
-          </button>
+            <span className="flex-1 truncate">{session.title}</span>
+            <button
+              onClick={(e) => handleDeleteSession(e, session.id)}
+              className="opacity-0 group-hover:opacity-100 transition-opacity p-0.5 rounded hover:text-red-400 flex-shrink-0"
+              style={{ color: "var(--text-secondary)" }}
+            >
+              <Trash2 size={13} />
+            </button>
+          </div>
         ))}
       </div>
 

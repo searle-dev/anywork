@@ -29,6 +29,7 @@ interface ChatState {
   finalizeStream: () => void;
   setMessages: (msgs: ChatMessage[]) => void;
   updateSessionTitle: (id: string, title: string) => void;
+  removeSession: (id: string) => void;
 }
 
 export const useChatStore = create<ChatState>((set, get) => ({
@@ -106,5 +107,13 @@ export const useChatStore = create<ChatState>((set, get) => ({
       sessions: s.sessions.map((sess) =>
         sess.id === id ? { ...sess, title } : sess
       ),
+    })),
+
+  removeSession: (id) =>
+    set((s) => ({
+      sessions: s.sessions.filter((sess) => sess.id !== id),
+      ...(s.activeSessionId === id
+        ? { activeSessionId: null, messages: [], streamingContent: "", pendingToolCalls: [] }
+        : {}),
     })),
 }));
