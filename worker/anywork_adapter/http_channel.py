@@ -148,10 +148,21 @@ class AgentBridge:
 
             if final_text:
                 # nanobot only persists user messages to JSONL; append assistant reply ourselves
+                tool_calls = [
+                    {"name": e.content, "status": "done"}
+                    for e in pending_events
+                    if e.type == "tool_call"
+                ]
+                msg_data: dict = {
+                    "role": "assistant",
+                    "content": final_text,
+                    "timestamp": datetime.now(timezone.utc).isoformat(),
+                }
+                if tool_calls:
+                    msg_data["tool_calls"] = tool_calls
                 _append_jsonl_message(
                     self.workspace / "sessions" / f"anywork_{session_id}.jsonl",
-                    {"role": "assistant", "content": final_text,
-                     "timestamp": datetime.now(timezone.utc).isoformat()},
+                    msg_data,
                 )
                 yield ChatEvent(type="text", content=final_text)
             else:
@@ -316,11 +327,14 @@ def _read_jsonl_messages(fpath: Path) -> list[dict]:
                     # Strip nanobot's injected [Runtime Context] from user messages
                     if role == "user" and "\n\n[Runtime Context]" in content:
                         content = content.split("\n\n[Runtime Context]")[0]
-                    messages.append({
+                    msg: dict = {
                         "role": role,
                         "content": content,
                         "timestamp": data.get("timestamp", ""),
-                    })
+                    }
+                    if role == "assistant" and data.get("tool_calls"):
+                        msg["tool_calls"] = data["tool_calls"]
+                    messages.append(msg)
     except OSError:
         pass
     return messages

@@ -24,6 +24,10 @@ export function Sidebar() {
           role: m.role as "user" | "assistant",
           content: m.content,
           timestamp: m.timestamp,
+          toolCalls: m.tool_calls?.map((tc) => ({
+            name: tc.name,
+            status: tc.status as "running" | "done" | "error",
+          })),
         }))
       );
     } catch {

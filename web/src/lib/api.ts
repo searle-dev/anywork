@@ -13,7 +13,7 @@ export async function fetchSessions() {
   return res.json();
 }
 
-export async function fetchSessionMessages(sessionId: string): Promise<{ messages: Array<{ role: string; content: string; timestamp: string }> }> {
+export async function fetchSessionMessages(sessionId: string): Promise<{ messages: Array<{ role: string; content: string; timestamp: string; tool_calls?: Array<{ name: string; status: string }> }> }> {
   const res = await fetch(`${API_URL}/api/sessions/${sessionId}/messages`);
   if (!res.ok) return { messages: [] };
   return res.json();
