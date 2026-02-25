@@ -1,0 +1,19 @@
+# Claude Code project context (local only, not for public repo)
+CLAUDE.md
+
+node_modules/
+.next/
+dist/
+build/
+.env
+.env.local
+*.pyc
+__pycache__/
+*.egg-info/
+.venv/
+venv/
+.DS_Store
+*.db
+*.sqlite
+data/
+.turbo/

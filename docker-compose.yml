@@ -1,0 +1,85 @@
+version: "3.8"
+
+# AnyWork Local Development
+# Usage: docker compose up --build
+# Then open http://localhost:7100
+# Note: ports 7000 and 3001 may conflict with macOS system processes
+
+services:
+  # --- Web Frontend (Next.js) ---
+  web:
+    build:
+      context: ./web
+      args:
+        # Build-time: baked into client JS, browser connects to host ports
+        NEXT_PUBLIC_API_URL: http://localhost:3100
+        NEXT_PUBLIC_WS_URL: ws://localhost:3100/ws
+    ports:
+      - "7100:7000"
+    depends_on:
+      - server
+    restart: unless-stopped
+
+  # --- API Server (Node.js) ---
+  server:
+    build: ./server
+    ports:
+      - "3100:3001"
+    environment:
+      - SERVER_PORT=3001
+      - CONTAINER_DRIVER=static
+      - STATIC_WORKER_URL=http://worker:8080
+      - STORAGE_DRIVER=local
+      - LOCAL_DATA_DIR=/data/users
+      - DB_DIR=/data
+      - JWT_SECRET=dev-secret-local
+      # LLM for title generation (same provider as worker)
+      - API_KEY=${API_KEY:-}
+      - API_BASE_URL=${API_BASE_URL:-}
+      - MODEL=${MODEL:-}
+      - TITLE_MODEL=${TITLE_MODEL:-}
+    volumes:
+      - anywork-data:/data
+    depends_on:
+      worker:
+        condition: service_healthy
+    restart: unless-stopped
+
+  # --- Worker (nanobot agent) ---
+  worker:
+    build: ./worker
+    environment:
+      - WORKSPACE_DIR=/workspace
+      - WORKER_PORT=8080
+      # LLM Provider config - set in .env file
+      - API_STYLE=${API_STYLE:-openai}
+      - API_BASE_URL=${API_BASE_URL:-}
+      - API_KEY=${API_KEY:-}
+      - MODEL=${MODEL:-}
+      # Legacy backward compat
+      - ANTHROPIC_API_KEY=${ANTHROPIC_API_KEY:-}
+      - OPENAI_API_KEY=${OPENAI_API_KEY:-}
+      - BRAVE_API_KEY=${BRAVE_API_KEY:-}
+    volumes:
+      - anywork-workspace:/workspace
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8080/health"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 15s
+    restart: unless-stopped
+    deploy:
+      resources:
+        limits:
+          cpus: "2"
+          memory: 2G
+        reservations:
+          cpus: "0.5"
+          memory: 512M
+
+volumes:
+  anywork-data:
+    driver: local
+  anywork-workspace:
+    driver: local
