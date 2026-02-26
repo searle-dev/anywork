@@ -7,7 +7,7 @@ import { Plus, MessageSquare, Zap, Settings, Trash2 } from "lucide-react";
 import { WorkspaceEditor } from "@/components/settings/WorkspaceEditor";
 
 export function Sidebar() {
-  const { sessions, activeSessionId, setActiveSession, setMessages, removeSession } = useChatStore();
+  const { sessions, activeSessionId, isStreaming, setActiveSession, setMessages, removeSession } = useChatStore();
   const [editorOpen, setEditorOpen] = useState(false);
 
   const handleNewChat = () => {
@@ -21,9 +21,15 @@ export function Sidebar() {
   };
 
   const handleSelectSession = async (sessionId: string) => {
+    // Don't interrupt an active stream in the current session
+    if (sessionId === activeSessionId && isStreaming) return;
+
     setActiveSession(sessionId);
     try {
       const { messages } = await fetchSessionMessages(sessionId);
+      // Guard against race: only update if still on this session and not mid-stream
+      const state = useChatStore.getState();
+      if (state.activeSessionId !== sessionId || state.isStreaming) return;
       setMessages(
         messages.map((m, i) => ({
           id: `${sessionId}-${i}`,
