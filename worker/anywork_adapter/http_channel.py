@@ -324,9 +324,12 @@ def _read_jsonl_messages(fpath: Path) -> list[dict]:
                 role = data.get("role")
                 if role in ("user", "assistant") and data.get("content"):
                     content = data["content"]
-                    # Strip nanobot's injected [Runtime Context] from user messages
+                    if not isinstance(content, str):
+                        continue
+                    # nanobot saves user messages twice: clean + context-injected.
+                    # Skip the injected copy; the clean version is already in the file.
                     if role == "user" and "\n\n[Runtime Context]" in content:
-                        content = content.split("\n\n[Runtime Context]")[0]
+                        continue
                     msg: dict = {
                         "role": role,
                         "content": content,
