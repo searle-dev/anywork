@@ -336,7 +336,14 @@ def _read_jsonl_messages(fpath: Path) -> list[dict]:
                         "timestamp": data.get("timestamp", ""),
                     }
                     if role == "assistant" and data.get("tool_calls"):
-                        msg["tool_calls"] = data["tool_calls"]
+                        # Only keep our format: {"name": str, "status": str}
+                        # nanobot uses OpenAI format: {"id":..., "type":"function", "function":{...}}
+                        own_calls = [
+                            tc for tc in data["tool_calls"]
+                            if isinstance(tc.get("name"), str)
+                        ]
+                        if own_calls:
+                            msg["tool_calls"] = own_calls
                     messages.append(msg)
     except OSError:
         pass

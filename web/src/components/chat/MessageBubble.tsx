@@ -14,8 +14,8 @@ interface Props {
 function ToolCallBlock({ tc }: { tc: ToolCall }) {
   const [open, setOpen] = useState(false);
 
-  // First line as summary (e.g. "exec(" or "read_file(")
-  const summary = tc.name.split("\n")[0].slice(0, 60) + (tc.name.length > 60 ? "…" : "");
+  const name = tc.name ?? "";
+  const summary = name.split("\n")[0].slice(0, 60) + (name.length > 60 ? "…" : "");
 
   return (
     <div className="rounded-lg overflow-hidden text-xs my-1"
@@ -38,7 +38,7 @@ function ToolCallBlock({ tc }: { tc: ToolCall }) {
           <div className="px-3 py-2">
             <p className="text-[10px] uppercase tracking-wide mb-1" style={{ color: "var(--text-secondary)" }}>Input</p>
             <pre className="whitespace-pre-wrap break-all font-mono text-xs overflow-auto max-h-48"
-                 style={{ color: "var(--text-primary)" }}>{tc.name}</pre>
+                 style={{ color: "var(--text-primary)" }}>{name}</pre>
           </div>
           {tc.output !== undefined && (
             <div className="px-3 py-2" style={{ borderTop: "1px solid var(--border)" }}>
