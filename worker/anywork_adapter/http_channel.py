@@ -1,8 +1,17 @@
 """
-HTTP/SSE Channel Adapter — nanobot backend.
+HTTP/SSE Channel Adapter.
 
-AgentBridge keeps its chat_stream() SSE interface.
-Internally uses nanobot AgentLoop as the execution engine.
+Supports two execution engines selected via the ENGINE env var:
+  ENGINE=nanobot     (default) — nanobot AgentLoop
+  ENGINE=claudecode  — Claude Code CLI subprocess
+
+On startup the worker reads:
+  SKILLS     comma-separated list of skill names to load
+  MCP_SERVERS JSON array of MCP server configs (see WorkerSpec.MCPServerConfig)
+  ENGINE     "nanobot" | "claudecode"
+
+The skill prompts are appended to the agent's base system prompt so the
+agent gains specialised expertise without losing its base personality.
 
 Flow:
   API Server --POST /chat--> Worker --SSE stream--> API Server
@@ -22,9 +31,11 @@ from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel, Field
 from sse_starlette.sse import EventSourceResponse
 
+from anywork_adapter.skill_loader import get_skills_from_env, load_skill_prompts
+
 logger = logging.getLogger(__name__)
 
-app = FastAPI(title="AnyWork Worker", version="0.1.0")
+app = FastAPI(title="AnyWork Worker", version="0.2.0")
 
 app.add_middleware(
     CORSMiddleware,
@@ -51,63 +62,109 @@ class ChatEvent(BaseModel):
 
 
 # ---------------------------------------------------------------------------
-# AgentBridge — wraps nanobot AgentLoop
+# Engine bootstrap
+# ---------------------------------------------------------------------------
+
+WORKSPACE_DIR = os.environ.get("WORKSPACE_DIR", "/workspace")
+ENGINE = os.environ.get("ENGINE", "nanobot").lower()
+
+# Load skills at startup (set by K8sDriver as SKILLS env var)
+_skill_names = get_skills_from_env()
+_skill_prompts = load_skill_prompts(_skill_names)
+if _skill_names:
+    logger.info("Loaded skills: %s", ", ".join(_skill_names))
+
+# Parse MCP servers from env (set by K8sDriver as MCP_SERVERS env var)
+_raw_mcp = os.environ.get("MCP_SERVERS", "").strip()
+_mcp_servers: list[dict] = []
+if _raw_mcp:
+    try:
+        _mcp_servers = json.loads(_raw_mcp)
+        logger.info("MCP servers configured: %s", [s.get("name") for s in _mcp_servers])
+    except json.JSONDecodeError as e:
+        logger.warning("Failed to parse MCP_SERVERS env var: %s", e)
+
+
+def _build_nanobot_engine():
+    """Construct a nanobot AgentLoop with skill prompts injected."""
+    from nanobot.agent.loop import AgentLoop
+    from nanobot.bus.queue import MessageBus
+    from nanobot.providers.litellm_provider import LiteLLMProvider
+
+    api_key = (
+        os.environ.get("API_KEY")
+        or os.environ.get("ANTHROPIC_API_KEY")
+        or os.environ.get("OPENAI_API_KEY")
+        or ""
+    )
+    api_base = os.environ.get("API_BASE_URL") or None
+    model = os.environ.get("MODEL") or os.environ.get("DEFAULT_MODEL") or None
+    brave_key = os.environ.get("BRAVE_API_KEY") or None
+
+    if not api_key:
+        logger.warning("No API key configured — nanobot will likely fail on LLM calls")
+
+    provider = LiteLLMProvider(
+        api_key=api_key or None,
+        api_base=api_base,
+        default_model=model or "gpt-4o",
+    )
+    bus = MessageBus()
+
+    # nanobot appends the extra_system_prompt to the base SOUL.md content
+    extra_prompt = _skill_prompts if _skill_prompts else None
+
+    agent = AgentLoop(
+        bus=bus,
+        provider=provider,
+        workspace=Path(WORKSPACE_DIR),
+        model=model,
+        brave_api_key=brave_key,
+        restrict_to_workspace=True,
+        extra_system_prompt=extra_prompt,
+    )
+
+    if brave_key:
+        logger.info("Web search enabled (Brave API key configured)")
+
+    return agent
+
+
+def _build_claude_engine():
+    """Construct a ClaudeCode subprocess engine."""
+    from anywork_adapter.engine_claude import ClaudeCodeEngine
+    return ClaudeCodeEngine(
+        workspace_dir=WORKSPACE_DIR,
+        skill_prompts=_skill_prompts,
+    )
+
+
+# ---------------------------------------------------------------------------
+# Engine singleton
+# ---------------------------------------------------------------------------
+
+if ENGINE == "claudecode":
+    logger.info("Starting with ClaudeCode engine")
+    _claude_engine = _build_claude_engine()
+    _nanobot_agent = None
+else:
+    logger.info("Starting with nanobot engine")
+    _nanobot_agent = _build_nanobot_engine()
+    _claude_engine = None
+
+
+# ---------------------------------------------------------------------------
+# AgentBridge — unified streaming interface over both engines
 # ---------------------------------------------------------------------------
 
 class AgentBridge:
     """
-    Bridge between HTTP API and nanobot AgentLoop.
-
-    Initialises a single AgentLoop per worker process (singleton).
-    Each chat request maps to a nanobot session key: "anywork:{session_id}".
+    Wraps whichever engine is active and exposes a single chat_stream() method
+    that yields ChatEvent objects.
     """
 
     def __init__(self, workspace_dir: str):
         self.workspace = Path(workspace_dir)
-        self._agent = self._build_agent()
-        logger.info("AgentBridge initialised with nanobot AgentLoop")
-
-    def _build_agent(self):
-        from nanobot.agent.loop import AgentLoop
-        from nanobot.bus.queue import MessageBus
-        from nanobot.providers.litellm_provider import LiteLLMProvider
-
-        api_key = (
-            os.environ.get("API_KEY")
-            or os.environ.get("ANTHROPIC_API_KEY")
-            or os.environ.get("OPENAI_API_KEY")
-            or ""
-        )
-        api_base = os.environ.get("API_BASE_URL") or None
-        model = os.environ.get("MODEL") or os.environ.get("DEFAULT_MODEL") or None
-        brave_key = os.environ.get("BRAVE_API_KEY") or None
-
-        if not api_key:
-            logger.warning("No API key configured — nanobot will likely fail on LLM calls")
-
-        provider = LiteLLMProvider(
-            api_key=api_key or None,
-            api_base=api_base,
-            default_model=model or "gpt-4o",
-        )
-
-        bus = MessageBus()
-
-        agent = AgentLoop(
-            bus=bus,
-            provider=provider,
-            workspace=self.workspace,
-            model=model,
-            brave_api_key=brave_key,
-            restrict_to_workspace=True,   # sandbox file/shell to /workspace
-        )
-
-        if brave_key:
-            logger.info("Web search enabled (Brave API key configured)")
-        else:
-            logger.info("Web search disabled (no BRAVE_API_KEY)")
-
-        return agent
 
     async def chat_stream(
         self,
@@ -115,27 +172,31 @@ class AgentBridge:
         message: str,
         user_id: str,
     ) -> AsyncGenerator[ChatEvent, None]:
-        """
-        Process a chat message and yield SSE events.
+        if ENGINE == "claudecode":
+            async for ev in self._stream_claudecode(session_id, message, user_id):
+                yield ev
+        else:
+            async for ev in self._stream_nanobot(session_id, message, user_id):
+                yield ev
 
-        Yields:
-          tool_call events  — when nanobot calls a tool (via on_progress)
-          text event        — full final response (one event, non-streaming)
-          done event        — always last
-        """
+    # ── nanobot backend ──────────────────────────────────────────────────────
+
+    async def _stream_nanobot(
+        self,
+        session_id: str,
+        message: str,
+        user_id: str,
+    ) -> AsyncGenerator[ChatEvent, None]:
+        assert _nanobot_agent is not None
         session_key = f"anywork:{session_id}"
         pending_events: list[ChatEvent] = []
 
         async def on_progress(content: str, *, tool_hint: bool = False) -> None:
-            # tool_hint=True  → agent is using a tool
-            # tool_hint=False → intermediate reasoning text (skip for now)
             if tool_hint:
-                pending_events.append(
-                    ChatEvent(type="tool_call", content=content)
-                )
+                pending_events.append(ChatEvent(type="tool_call", content=content))
 
         try:
-            final_text = await self._agent.process_direct(
+            final_text = await _nanobot_agent.process_direct(
                 content=message,
                 session_key=session_key,
                 channel="anywork",
@@ -147,7 +208,6 @@ class AgentBridge:
                 yield event
 
             if final_text:
-                # nanobot only persists user messages to JSONL; append assistant reply ourselves
                 tool_calls = [
                     {"name": e.content, "status": "done"}
                     for e in pending_events
@@ -169,9 +229,48 @@ class AgentBridge:
                 yield ChatEvent(type="error", content="Agent returned empty response")
 
         except Exception as e:
-            logger.error("AgentBridge error in session %s: %s", session_id, e)
+            logger.error("nanobot error in session %s: %s", session_id, e)
             yield ChatEvent(type="error", content=str(e))
+        finally:
+            yield ChatEvent(type="done")
 
+    # ── claudecode backend ───────────────────────────────────────────────────
+
+    async def _stream_claudecode(
+        self,
+        session_id: str,
+        message: str,
+        user_id: str,
+    ) -> AsyncGenerator[ChatEvent, None]:
+        assert _claude_engine is not None
+        try:
+            async for ev in _claude_engine.chat_stream(
+                session_id=session_id,
+                message=message,
+                user_id=user_id,
+                mcp_servers=_mcp_servers or None,
+            ):
+                if ev["type"] == "done":
+                    break
+                yield ChatEvent(
+                    type=ev["type"],
+                    content=ev.get("content", ""),
+                    metadata=ev.get("metadata", {}),
+                )
+
+                # Persist assistant text to JSONL (same format as nanobot)
+                if ev["type"] == "text" and ev.get("content"):
+                    _append_jsonl_message(
+                        self.workspace / "sessions" / f"anywork_{session_id}.jsonl",
+                        {
+                            "role": "assistant",
+                            "content": ev["content"],
+                            "timestamp": datetime.now(timezone.utc).isoformat(),
+                        },
+                    )
+        except Exception as e:
+            logger.error("claudecode error in session %s: %s", session_id, e)
+            yield ChatEvent(type="error", content=str(e))
         finally:
             yield ChatEvent(type="done")
 
@@ -180,7 +279,6 @@ class AgentBridge:
 # Initialise bridge
 # ---------------------------------------------------------------------------
 
-WORKSPACE_DIR = os.environ.get("WORKSPACE_DIR", "/workspace")
 bridge = AgentBridge(WORKSPACE_DIR)
 
 
@@ -194,8 +292,10 @@ async def health_check():
         "status": "healthy",
         "workspace": WORKSPACE_DIR,
         "workspace_exists": Path(WORKSPACE_DIR).is_dir(),
-        "engine": "nanobot",
+        "engine": ENGINE,
         "model": os.environ.get("MODEL", "(auto)"),
+        "skills": _skill_names,
+        "mcp_servers": [s.get("name") for s in _mcp_servers],
         "web_search": bool(os.environ.get("BRAVE_API_KEY")),
         "timestamp": datetime.now(timezone.utc).isoformat(),
     }
@@ -307,7 +407,7 @@ async def put_workspace_file(file: str, body: WorkspaceFileBody):
 # ---------------------------------------------------------------------------
 
 def _read_jsonl_messages(fpath: Path) -> list[dict]:
-    """Parse a nanobot JSONL session file, returning only user/assistant messages."""
+    """Parse a JSONL session file, returning only user/assistant messages."""
     messages = []
     try:
         with open(fpath, encoding="utf-8") as f:
@@ -326,8 +426,6 @@ def _read_jsonl_messages(fpath: Path) -> list[dict]:
                     content = data["content"]
                     if not isinstance(content, str):
                         continue
-                    # nanobot saves user messages twice: clean + context-injected.
-                    # Skip the injected copy; the clean version is already in the file.
                     if role == "user" and "\n\n[Runtime Context]" in content:
                         continue
                     msg: dict = {
@@ -336,8 +434,6 @@ def _read_jsonl_messages(fpath: Path) -> list[dict]:
                         "timestamp": data.get("timestamp", ""),
                     }
                     if role == "assistant" and data.get("tool_calls"):
-                        # Only keep our format: {"name": str, "status": str}
-                        # nanobot uses OpenAI format: {"id":..., "type":"function", "function":{...}}
                         own_calls = [
                             tc for tc in data["tool_calls"]
                             if isinstance(tc.get("name"), str)
@@ -351,11 +447,10 @@ def _read_jsonl_messages(fpath: Path) -> list[dict]:
 
 
 def _append_jsonl_message(fpath: Path, message: dict) -> None:
-    """Append a single message line to a nanobot JSONL session file."""
+    """Append a single message line to a JSONL session file."""
     try:
+        fpath.parent.mkdir(parents=True, exist_ok=True)
         with open(fpath, "a", encoding="utf-8") as f:
             f.write(json.dumps(message, ensure_ascii=False) + "\n")
     except OSError as e:
         logger.warning("Failed to append message to %s: %s", fpath, e)
-
-

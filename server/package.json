@@ -17,7 +17,8 @@
     "eventsource-parser": "^3.0.0",
     "dotenv": "^16.4.0",
     "cors": "^2.8.5",
-    "morgan": "^1.10.0"
+    "morgan": "^1.10.0",
+    "@kubernetes/client-node": "^1.0.0"
   },
   "devDependencies": {
     "@types/express": "^5.0.0",

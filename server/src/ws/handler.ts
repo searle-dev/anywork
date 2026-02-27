@@ -11,6 +11,7 @@ import WebSocket from "ws";
 import { IncomingMessage } from "http";
 import { v4 as uuid } from "uuid";
 import { getContainerDriver } from "../scheduler/container";
+import { MCPServerConfig } from "../scheduler/drivers/interface";
 import { getDb } from "../db/schema";
 import { generateTitle } from "../lib/titleGen";
 
@@ -18,6 +19,22 @@ interface ClientMessage {
   type: "chat" | "ping";
   session_id?: string;
   message?: string;
+  /**
+   * Skills to activate for this session (first message only; ignored for
+   * subsequent messages once the worker pod is already running).
+   * Example: ["code-review", "data-analysis"]
+   */
+  skills?: string[];
+  /**
+   * MCP servers to connect on worker startup (first message only).
+   * Example: [{"name":"github","transport":"stdio","command":"npx","args":["-y","@mcp/github"]}]
+   */
+  mcp_servers?: MCPServerConfig[];
+  /**
+   * Execution engine override for this session.
+   * "nanobot" (default) or "claudecode".
+   */
+  engine?: "nanobot" | "claudecode";
 }
 
 interface ServerMessage {
@@ -91,9 +108,16 @@ async function handleChat(
   }
 
   try {
-    // Get worker endpoint for this user
+    // Get (or create) worker endpoint.
+    // For the K8s driver this creates a per-session pod with the requested
+    // skills/MCPs baked in as environment variables.
     const driver = getContainerDriver();
-    const endpoint = await driver.getWorkerEndpoint(userId);
+    const endpoint = await driver.getWorkerEndpoint(userId, {
+      sessionId,
+      skills: msg.skills,
+      mcpServers: msg.mcp_servers,
+      engine: msg.engine,
+    });
 
     // POST to worker's /chat endpoint and stream SSE back
     const response = await fetch(`${endpoint.url}/chat`, {

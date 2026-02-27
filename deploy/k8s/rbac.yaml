@@ -1,0 +1,52 @@
+# RBAC — grants the server's ServiceAccount the permissions needed to
+# create and manage worker Pods, Services, and PVCs dynamically.
+#
+# Attach this to the server's Pod by setting:
+#   spec.serviceAccountName: anywork-server
+# in the server Deployment.
+
+---
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: anywork-server
+  namespace: anywork
+
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: Role
+metadata:
+  name: worker-manager
+  namespace: anywork
+rules:
+  # Pods — create / read / delete worker pods
+  - apiGroups: [""]
+    resources: [pods]
+    verbs: [create, get, list, watch, delete]
+  # Pod logs (optional; useful for debugging)
+  - apiGroups: [""]
+    resources: [pods/log]
+    verbs: [get]
+  # Services — create / read / delete per-session ClusterIP services
+  - apiGroups: [""]
+    resources: [services]
+    verbs: [create, get, list, delete]
+  # PersistentVolumeClaims — create / read per-user workspace PVCs
+  - apiGroups: [""]
+    resources: [persistentvolumeclaims]
+    verbs: [create, get, list]
+
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  name: anywork-server-worker-manager
+  namespace: anywork
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: Role
+  name: worker-manager
+subjects:
+  - kind: ServiceAccount
+    name: anywork-server
+    namespace: anywork

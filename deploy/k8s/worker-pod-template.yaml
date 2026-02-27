@@ -1,0 +1,112 @@
+# Worker Pod template — for reference only.
+#
+# In production the K8sDriver creates worker Pods dynamically via the
+# Kubernetes API.  This file shows the canonical shape of a worker Pod
+# so you can audit it, test it manually, or customise the driver template.
+#
+# Key points:
+#   - restartPolicy: Never  (per-session; no restart on failure)
+#   - SKILLS / MCP_SERVERS env vars are set by K8sDriver at pod-creation time
+#   - ENGINE selects nanobot (default) or claudecode
+#   - Workspace is mounted as emptyDir (ephemeral) or a user PVC
+
+---
+apiVersion: v1
+kind: Pod
+metadata:
+  name: worker-example          # K8sDriver uses: w-session-<sessionId>
+  namespace: anywork
+  labels:
+    app: anywork-worker
+    anywork/pod-name: worker-example
+    anywork/user-id: user-alice
+    anywork/session-id: sess-abc123
+  annotations:
+    anywork/created-at: "2026-01-01T00:00:00Z"
+    anywork/skills: "code-review,docker-expert"
+    anywork/engine: "nanobot"
+spec:
+  restartPolicy: Never
+  containers:
+    - name: worker
+      image: anywork-worker:latest   # replace with your registry path
+      imagePullPolicy: IfNotPresent
+      ports:
+        - containerPort: 8080
+          name: http
+      env:
+        - name: WORKSPACE_DIR
+          value: /workspace
+        - name: ENGINE
+          value: nanobot           # or "claudecode"
+        - name: SKILLS
+          value: "code-review,docker-expert"
+        - name: MCP_SERVERS
+          # JSON array of MCPServerConfig objects
+          value: |
+            [
+              {
+                "name": "github",
+                "transport": "stdio",
+                "command": "npx",
+                "args": ["-y", "@modelcontextprotocol/server-github"],
+                "env": {"GITHUB_TOKEN": "ghp_..."}
+              }
+            ]
+        - name: ANTHROPIC_API_KEY
+          valueFrom:
+            secretKeyRef:
+              name: anywork-secrets
+              key: ANTHROPIC_API_KEY
+        - name: DEFAULT_MODEL
+          value: "claude-sonnet-4-20250514"
+        - name: MODEL
+          value: "claude-sonnet-4-20250514"
+      readinessProbe:
+        httpGet:
+          path: /health
+          port: 8080
+        initialDelaySeconds: 3
+        periodSeconds: 3
+        failureThreshold: 20
+      livenessProbe:
+        httpGet:
+          path: /health
+          port: 8080
+        initialDelaySeconds: 10
+        periodSeconds: 15
+      resources:
+        requests:
+          cpu: "250m"
+          memory: "512Mi"
+        limits:
+          cpu: "2000m"
+          memory: "2Gi"
+      volumeMounts:
+        - name: workspace
+          mountPath: /workspace
+  volumes:
+    - name: workspace
+      emptyDir: {}
+      # For persistent user workspace, replace emptyDir with:
+      # persistentVolumeClaim:
+      #   claimName: workspace-user-alice
+
+---
+# Companion ClusterIP Service for stable in-cluster DNS routing
+# Service name == Pod name; K8sDriver always creates both together.
+apiVersion: v1
+kind: Service
+metadata:
+  name: worker-example
+  namespace: anywork
+  labels:
+    app: anywork-worker
+spec:
+  selector:
+    anywork/pod-name: worker-example
+  ports:
+    - port: 8080
+      targetPort: 8080
+      name: http
+  type: ClusterIP
