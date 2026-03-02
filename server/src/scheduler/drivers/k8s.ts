@@ -110,12 +110,20 @@ export class K8sDriver implements ContainerDriver {
     }
   }
 
+  listEndpoints(): Map<string, WorkerEndpoint> {
+    const map = new Map<string, WorkerEndpoint>();
+    for (const [sessionId, entry] of this.cache) {
+      map.set(sessionId, entry.endpoint);
+    }
+    return map;
+  }
+
   // ── Pod lifecycle ────────────────────────────────────────
 
   private async reconcilePod(podName: string, sessionId: string) {
     try {
-      const { body } = await this.k8sCore.readNamespacedPod(podName, this.opts.namespace);
-      const phase = body.status?.phase;
+      const pod = await this.k8sCore.readNamespacedPod({ name: podName, namespace: this.opts.namespace });
+      const phase = pod.status?.phase;
       if (phase === "Running" || phase === "Pending") {
         await this.ensureService(podName);
         return;
@@ -193,12 +201,12 @@ export class K8sDriver implements ContainerDriver {
       },
     };
 
-    await this.k8sCore.createNamespacedPod(this.opts.namespace, pod);
+    await this.k8sCore.createNamespacedPod({ namespace: this.opts.namespace, body: pod });
   }
 
   private async ensureService(podName: string) {
     try {
-      await this.k8sCore.readNamespacedService(podName, this.opts.namespace);
+      await this.k8sCore.readNamespacedService({ name: podName, namespace: this.opts.namespace });
       return;
     } catch (e: any) {
       if (e?.response?.statusCode !== 404 && e?.statusCode !== 404) throw e;
@@ -219,13 +227,13 @@ export class K8sDriver implements ContainerDriver {
       },
     };
 
-    await this.k8sCore.createNamespacedService(this.opts.namespace, svc);
+    await this.k8sCore.createNamespacedService({ namespace: this.opts.namespace, body: svc });
   }
 
   private async ensureWorkspacePVC(sessionId: string) {
     const pvcName = `ws-${sanitizeLabel(sessionId)}`;
     try {
-      await this.k8sCore.readNamespacedPersistentVolumeClaim(pvcName, this.opts.namespace);
+      await this.k8sCore.readNamespacedPersistentVolumeClaim({ name: pvcName, namespace: this.opts.namespace });
       return;
     } catch (e: any) {
       if (e?.response?.statusCode !== 404 && e?.statusCode !== 404) throw e;
@@ -242,14 +250,14 @@ export class K8sDriver implements ContainerDriver {
       },
     };
 
-    await this.k8sCore.createNamespacedPersistentVolumeClaim(this.opts.namespace, pvc);
+    await this.k8sCore.createNamespacedPersistentVolumeClaim({ namespace: this.opts.namespace, body: pvc });
   }
 
   private async deletePodAndService(podName: string) {
     const ns = this.opts.namespace;
     await Promise.allSettled([
-      this.k8sCore.deleteNamespacedPod(podName, ns),
-      this.k8sCore.deleteNamespacedService(podName, ns),
+      this.k8sCore.deleteNamespacedPod({ name: podName, namespace: ns }),
+      this.k8sCore.deleteNamespacedService({ name: podName, namespace: ns }),
     ]);
   }
 
@@ -269,14 +277,14 @@ export class K8sDriver implements ContainerDriver {
     const deadline = Date.now() + timeoutSeconds * 1000;
     while (Date.now() < deadline) {
       try {
-        const { body } = await this.k8sCore.readNamespacedPod(podName, this.opts.namespace);
-        const phase = body.status?.phase;
+        const pod = await this.k8sCore.readNamespacedPod({ name: podName, namespace: this.opts.namespace });
+        const phase = pod.status?.phase;
         if (phase === "Failed" || phase === "Succeeded") {
           throw new Error(`Worker pod ${podName} entered terminal phase: ${phase}`);
         }
         if (phase === "Running") {
-          const statuses = body.status?.containerStatuses ?? [];
-          if (statuses.length > 0 && statuses.every((cs) => cs.ready)) return;
+          const statuses = pod.status?.containerStatuses ?? [];
+          if (statuses.length > 0 && statuses.every((cs: k8s.V1ContainerStatus) => cs.ready)) return;
         }
       } catch (e: any) {
         if (e.message?.includes("terminal phase")) throw e;

@@ -6,53 +6,35 @@
 #
 # Key points:
 #   - restartPolicy: Never  (per-session; no restart on failure)
-#   - SKILLS / MCP_SERVERS env vars are set by K8sDriver at pod-creation time
-#   - ENGINE selects nanobot (default) or claudecode
+#   - Skills and MCP config are injected via the /prepare endpoint
+#   - Worker runs Claude Agent SDK (ClaudeSDKClient)
 #   - Workspace is mounted as emptyDir (ephemeral) or a user PVC
 
 ---
 apiVersion: v1
 kind: Pod
 metadata:
-  name: worker-example          # K8sDriver uses: w-session-<sessionId>
+  name: worker-example          # K8sDriver uses: w-s-<sessionId>
   namespace: anywork
   labels:
     app: anywork-worker
     anywork/pod-name: worker-example
-    anywork/user-id: user-alice
     anywork/session-id: sess-abc123
   annotations:
     anywork/created-at: "2026-01-01T00:00:00Z"
     anywork/skills: "code-review,docker-expert"
-    anywork/engine: "nanobot"
 spec:
   restartPolicy: Never
   containers:
     - name: worker
-      image: anywork-worker:latest   # replace with your registry path
-      imagePullPolicy: IfNotPresent
+      image: anywork-worker:latest
+      imagePullPolicy: Never    # k3d import; change to IfNotPresent for registry
       ports:
         - containerPort: 8080
           name: http
       env:
         - name: WORKSPACE_DIR
           value: /workspace
-        - name: ENGINE
-          value: nanobot           # or "claudecode"
-        - name: SKILLS
-          value: "code-review,docker-expert"
-        - name: MCP_SERVERS
-          # JSON array of MCPServerConfig objects
-          value: |
-            [
-              {
-                "name": "github",
-                "transport": "stdio",
-                "command": "npx",
-                "args": ["-y", "@modelcontextprotocol/server-github"],
-                "env": {"GITHUB_TOKEN": "ghp_..."}
-              }
-            ]
         - name: ANTHROPIC_API_KEY
           valueFrom:
             secretKeyRef:
@@ -90,7 +72,7 @@ spec:
       emptyDir: {}
       # For persistent user workspace, replace emptyDir with:
       # persistentVolumeClaim:
-      #   claimName: workspace-user-alice
+      #   claimName: workspace-sess-abc123
 
 ---
 # Companion ClusterIP Service for stable in-cluster DNS routing
