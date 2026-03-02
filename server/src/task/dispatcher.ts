@@ -181,7 +181,7 @@ async function handleWorkerStream(
           if (eventType === "done") {
             updateTask(taskId, {
               status: "completed",
-              result: lastResult || null,
+              result: lastResult || undefined,
               finished_at: now(),
             });
           } else if (eventType === "error") {
@@ -202,7 +202,7 @@ async function handleWorkerStream(
     if (task && task.status === "running") {
       updateTask(taskId, {
         status: "completed",
-        result: lastResult || null,
+        result: lastResult || undefined,
         finished_at: now(),
       });
     }
