@@ -8,7 +8,7 @@
  */
 
 import { execSync, exec } from "child_process";
-import { ContainerDriver, WorkerEndpoint } from "./interface";
+import { ContainerDriver, WorkerEndpoint, checkWorkerHealth } from "./interface";
 
 export class DockerDriver implements ContainerDriver {
   private image: string;
@@ -97,14 +97,7 @@ export class DockerDriver implements ContainerDriver {
   }
 
   async isHealthy(endpoint: WorkerEndpoint): Promise<boolean> {
-    try {
-      const res = await fetch(`${endpoint.url}/health`, {
-        signal: AbortSignal.timeout(3000),
-      });
-      return res.ok;
-    } catch {
-      return false;
-    }
+    return checkWorkerHealth(endpoint);
   }
 
   private async waitForReady(

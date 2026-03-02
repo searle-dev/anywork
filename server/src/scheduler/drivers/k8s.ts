@@ -15,7 +15,7 @@
  */
 
 import * as k8s from "@kubernetes/client-node";
-import { ContainerDriver, WorkerEndpoint } from "./interface";
+import { ContainerDriver, WorkerEndpoint, checkWorkerHealth } from "./interface";
 
 export interface K8sDriverOptions {
   namespace: string;
@@ -64,6 +64,7 @@ export class K8sDriver implements ContainerDriver {
 
     if (this.opts.idleTtlSeconds > 0) {
       this.cleanupTimer = setInterval(() => this.cleanupIdlePods(), 5 * 60 * 1000);
+      this.cleanupTimer.unref();
     }
   }
 
@@ -100,14 +101,7 @@ export class K8sDriver implements ContainerDriver {
   }
 
   async isHealthy(endpoint: WorkerEndpoint): Promise<boolean> {
-    try {
-      const res = await fetch(`${endpoint.url}/health`, {
-        signal: AbortSignal.timeout(3000),
-      });
-      return res.ok;
-    } catch {
-      return false;
-    }
+    return checkWorkerHealth(endpoint);
   }
 
   listEndpoints(): Map<string, WorkerEndpoint> {
@@ -130,7 +124,7 @@ export class K8sDriver implements ContainerDriver {
       }
       await this.deletePodAndService(podName);
     } catch (e: any) {
-      if (e?.response?.statusCode !== 404 && e?.statusCode !== 404) throw e;
+      if (!isNotFound(e)) throw e;
     }
 
     if (this.opts.workspaceStorage === "pvc") {
@@ -176,12 +170,12 @@ export class K8sDriver implements ContainerDriver {
           env: envVars,
           resources: {
             requests: {
-              cpu: res.cpuRequest ?? "250m",
-              memory: res.memoryRequest ?? "512Mi",
+              ...(res.cpuRequest && { cpu: res.cpuRequest }),
+              ...(res.memoryRequest && { memory: res.memoryRequest }),
             },
             limits: {
-              cpu: res.cpuLimit ?? "2000m",
-              memory: res.memoryLimit ?? "2Gi",
+              ...(res.cpuLimit && { cpu: res.cpuLimit }),
+              ...(res.memoryLimit && { memory: res.memoryLimit }),
             },
           },
           readinessProbe: {
@@ -209,7 +203,7 @@ export class K8sDriver implements ContainerDriver {
       await this.k8sCore.readNamespacedService({ name: podName, namespace: this.opts.namespace });
       return;
     } catch (e: any) {
-      if (e?.response?.statusCode !== 404 && e?.statusCode !== 404) throw e;
+      if (!isNotFound(e)) throw e;
     }
 
     const svc: k8s.V1Service = {
@@ -236,7 +230,7 @@ export class K8sDriver implements ContainerDriver {
       await this.k8sCore.readNamespacedPersistentVolumeClaim({ name: pvcName, namespace: this.opts.namespace });
       return;
     } catch (e: any) {
-      if (e?.response?.statusCode !== 404 && e?.statusCode !== 404) throw e;
+      if (!isNotFound(e)) throw e;
     }
 
     const pvc: k8s.V1PersistentVolumeClaim = {
@@ -297,14 +291,28 @@ export class K8sDriver implements ContainerDriver {
   private async cleanupIdlePods() {
     const now = Date.now();
     const ttlMs = this.opts.idleTtlSeconds * 1000;
+    const expired: string[] = [];
     for (const [key, entry] of this.cache) {
       if (now - entry.lastUsedAt > ttlMs) {
         console.log(`[K8s] Cleaning up idle pod: ${entry.endpoint.containerId}`);
-        await this.deletePodAndService(entry.endpoint.containerId);
-        this.cache.delete(key);
+        expired.push(key);
       }
     }
+    await Promise.allSettled(
+      expired.map((key) => {
+        const entry = this.cache.get(key)!;
+        this.cache.delete(key);
+        return this.deletePodAndService(entry.endpoint.containerId);
+      }),
+    );
   }
+}
+
+// ── K8s error helpers ──────────────────────────────────────
+
+function isNotFound(e: unknown): boolean {
+  const err = e as any;
+  return err?.response?.statusCode === 404 || err?.statusCode === 404;
 }
 
 // ── Utility ────────────────────────────────────────────────

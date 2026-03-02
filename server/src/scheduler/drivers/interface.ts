@@ -30,3 +30,15 @@ export interface ContainerDriver {
   /** List all known worker endpoints (optional, for admin dashboard). */
   listEndpoints?(): Map<string, WorkerEndpoint>;
 }
+
+/** Default health check shared by all drivers. */
+export async function checkWorkerHealth(endpoint: WorkerEndpoint): Promise<boolean> {
+  try {
+    const res = await fetch(`${endpoint.url}/health`, {
+      signal: AbortSignal.timeout(3000),
+    });
+    return res.ok;
+  } catch {
+    return false;
+  }
+}

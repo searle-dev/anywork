@@ -73,12 +73,15 @@ fi
 kubectl config use-context "k3d-${CLUSTER_NAME}"
 ok "kubectl context set to k3d-${CLUSTER_NAME}"
 
-# ── 3. Build Docker images ────────────────────────────────
-info "Building server image..."
-docker build -t anywork-server:latest server/
+# ── 3. Build Docker images (parallel) ─────────────────────
+info "Building server and worker images in parallel..."
+docker build -t anywork-server:latest server/ &
+BUILD_SERVER_PID=$!
+docker build -t anywork-worker:latest worker/ &
+BUILD_WORKER_PID=$!
 
-info "Building worker image..."
-docker build -t anywork-worker:latest worker/
+wait "$BUILD_SERVER_PID" || err "Server image build failed"
+wait "$BUILD_WORKER_PID" || err "Worker image build failed"
 
 ok "Images built."
 
@@ -102,22 +105,18 @@ if [[ -f .env ]]; then
   source <(grep -E '^[A-Z_]+=.+' .env | sed 's/#.*//')
   set +a
 
-  PATCH_DATA="{\"stringData\":{"
-  FIRST=true
-
+  # Build --from-literal flags for safe secret creation (handles special chars)
+  LITERAL_FLAGS=()
   for key in ANTHROPIC_API_KEY API_KEY API_BASE_URL; do
     val="${!key:-}"
     if [[ -n "$val" ]]; then
-      $FIRST || PATCH_DATA+=","
-      FIRST=false
-      PATCH_DATA+="\"$key\":\"$val\""
+      LITERAL_FLAGS+=("--from-literal=${key}=${val}")
     fi
   done
 
-  PATCH_DATA+="}}"
-
-  if [[ "$FIRST" == "false" ]]; then
-    kubectl patch secret anywork-secrets -n "$NAMESPACE" -p "$PATCH_DATA"
+  if [[ ${#LITERAL_FLAGS[@]} -gt 0 ]]; then
+    kubectl create secret generic anywork-secrets -n "$NAMESPACE" \
+      "${LITERAL_FLAGS[@]}" --dry-run=client -o yaml | kubectl apply -f -
     ok "Secrets patched."
   else
     warn "No API keys found in .env — secrets not patched."
