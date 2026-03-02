@@ -1,0 +1,138 @@
+# AnyWork API server Deployment + Service.
+#
+# The server uses the anywork-server ServiceAccount so it can create
+# worker Pods and Services via the Kubernetes API.
+#
+# Set the required secrets via a Kubernetes Secret and reference them
+# with envFrom (recommended) or individual env valueFrom entries.
+---
+apiVersion: v1
+kind: Secret
+metadata:
+  name: anywork-secrets
+  namespace: anywork
+type: Opaque
+stringData:
+  # Fill in before applying, or use external-secrets / Vault injection
+  ANTHROPIC_API_KEY: ""
+  API_KEY: ""
+  API_BASE_URL: ""
+  JWT_SECRET: "change-me-in-production"
+
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: anywork-server
+  namespace: anywork
+  labels:
+    app: anywork-server
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: anywork-server
+  template:
+    metadata:
+      labels:
+        app: anywork-server
+    spec:
+      serviceAccountName: anywork-server
+      containers:
+        - name: server
+          image: anywork-server:latest   # replace with your registry path
+          imagePullPolicy: IfNotPresent
+          ports:
+            - containerPort: 3001
+              name: http
+          envFrom:
+            - secretRef:
+                name: anywork-secrets
+          env:
+            - name: CONTAINER_DRIVER
+              value: "k8s"
+            - name: K8S_NAMESPACE
+              value: "anywork"
+            - name: WORKER_IMAGE
+              value: "anywork-worker:latest"   # replace with your registry path
+            - name: DEFAULT_MODEL
+              value: "claude-sonnet-4-20250514"
+            - name: K8S_WORKSPACE_STORAGE
+              value: "emptydir"   # or "pvc" for persistent workspaces
+            # K8S_PVC_STORAGE_CLASS: "standard"   # uncomment for PVC mode
+            - name: K8S_CPU_REQUEST
+              value: "250m"
+            - name: K8S_CPU_LIMIT
+              value: "2000m"
+            - name: K8S_MEMORY_REQUEST
+              value: "512Mi"
+            - name: K8S_MEMORY_LIMIT
+              value: "2Gi"
+            - name: K8S_IDLE_TTL_SECONDS
+              value: "1800"   # 30 min idle cleanup
+            - name: SERVER_PORT
+              value: "3001"
+            - name: DATABASE_URL
+              value: "sqlite:///data/anywork.db"
+          volumeMounts:
+            - name: data
+              mountPath: /data
+          readinessProbe:
+            httpGet:
+              path: /api/health
+              port: 3001
+            initialDelaySeconds: 5
+            periodSeconds: 10
+          resources:
+            requests:
+              cpu: "100m"
+              memory: "256Mi"
+            limits:
+              cpu: "1000m"
+              memory: "1Gi"
+      volumes:
+        - name: data
+          emptyDir: {}   # Use a PVC here for persistent session metadata
+
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: anywork-server
+  namespace: anywork
+  labels:
+    app: anywork-server
+spec:
+  selector:
+    app: anywork-server
+  ports:
+    - port: 3001
+      targetPort: 3001
+      name: http
+  type: ClusterIP
+
+---
+# Expose externally via an Ingress (adjust host/TLS to your cluster)
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: anywork-server
+  namespace: anywork
+  annotations:
+    nginx.ingress.kubernetes.io/proxy-read-timeout: "3600"
+    nginx.ingress.kubernetes.io/proxy-send-timeout: "3600"
+    # Needed for WebSocket upgrade
+    nginx.ingress.kubernetes.io/proxy-set-headers: "anywork/ws-headers"
+spec:
+  ingressClassName: nginx
+  rules:
+    - host: anywork.example.com   # replace with your domain
+      http:
+        paths:
+          - path: /
+            pathType: Prefix
+            backend:
+              service:
+                name: anywork-server
+                port:
+                  number: 3001

@@ -1,8 +1,8 @@
 /**
  * Docker container driver.
  *
- * Manages per-user worker containers using the Docker CLI.
- * Each user gets their own container with a dedicated workspace volume mount.
+ * Manages per-session worker containers using the Docker CLI.
+ * Each session gets its own container with a dedicated workspace volume mount.
  *
  * Phase 2 will add a Cloud Run driver with similar interface.
  */
@@ -33,20 +33,20 @@ export class DockerDriver implements ContainerDriver {
     this.defaultModel = opts.defaultModel;
   }
 
-  async getWorkerEndpoint(userId: string): Promise<WorkerEndpoint> {
+  async getWorkerEndpoint(sessionId: string): Promise<WorkerEndpoint> {
     // Check if container already exists
-    const existing = this.containers.get(userId);
+    const existing = this.containers.get(sessionId);
     if (existing && (await this.isHealthy(existing))) {
       return existing;
     }
 
     // Assign a host port
     const hostPort = this.nextPort++;
-    const containerName = `anywork-worker-${userId}`;
+    const containerName = `anywork-worker-${sessionId}`;
 
     // Ensure user data directory exists
-    const userDataDir = `${this.dataDir}/${userId}`;
-    execSync(`mkdir -p ${userDataDir}`);
+    const sessionDataDir = `${this.dataDir}/${sessionId}`;
+    execSync(`mkdir -p ${sessionDataDir}`);
 
     // Remove stale container if exists
     try {
@@ -62,7 +62,7 @@ export class DockerDriver implements ContainerDriver {
       "docker run -d",
       `--name ${containerName}`,
       `-p ${hostPort}:${this.workerPort}`,
-      `-v ${userDataDir}:/workspace`,
+      `-v ${sessionDataDir}:/workspace`,
       envFlags,
       this.image,
     ]
@@ -76,7 +76,7 @@ export class DockerDriver implements ContainerDriver {
       containerId,
     };
 
-    this.containers.set(userId, endpoint);
+    this.containers.set(sessionId, endpoint);
 
     // Wait for container to be ready
     await this.waitForReady(endpoint, 30);
@@ -84,12 +84,12 @@ export class DockerDriver implements ContainerDriver {
     return endpoint;
   }
 
-  async releaseWorker(userId: string): Promise<void> {
-    const containerName = `anywork-worker-${userId}`;
+  async releaseWorker(sessionId: string): Promise<void> {
+    const containerName = `anywork-worker-${sessionId}`;
     try {
       execSync(`docker stop ${containerName} && docker rm ${containerName}`);
     } catch {}
-    this.containers.delete(userId);
+    this.containers.delete(sessionId);
   }
 
   async isHealthy(endpoint: WorkerEndpoint): Promise<boolean> {

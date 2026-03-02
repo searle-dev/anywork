@@ -2,8 +2,8 @@
  * Static container driver.
  *
  * In docker-compose, the worker is a pre-running service at a fixed URL.
- * This driver simply returns that URL for all users.
- * Suitable for local development and single-user setups.
+ * This driver simply returns that URL for all sessions.
+ * Suitable for local development and single-session setups.
  */
 
 import { ContainerDriver, WorkerEndpoint } from "./interface";
@@ -15,14 +15,14 @@ export class StaticDriver implements ContainerDriver {
     this.workerUrl = workerUrl;
   }
 
-  async getWorkerEndpoint(_userId: string): Promise<WorkerEndpoint> {
+  async getWorkerEndpoint(_sessionId: string): Promise<WorkerEndpoint> {
     return {
       url: this.workerUrl,
       containerId: "static-worker",
     };
   }
 
-  async releaseWorker(_userId: string): Promise<void> {
+  async releaseWorker(_sessionId: string): Promise<void> {
     // No-op for static worker
   }
 

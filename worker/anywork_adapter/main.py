@@ -3,10 +3,10 @@ AnyWork Worker entry point.
 
 Initializes the workspace and starts the HTTP/SSE server.
 """
+from __future__ import annotations
 
 import logging
 import os
-import sys
 
 import uvicorn
 
@@ -28,9 +28,10 @@ def main():
 
     logger.info(f"Starting AnyWork Worker on port {port}")
     logger.info(f"Workspace: {workspace_dir}")
+    logger.info(f"Engine: claude-agent-sdk (ClaudeSDKClient)")
 
     uvicorn.run(
-        "anywork_adapter.http_channel:app",
+        "anywork_adapter.http_app:app",
         host="0.0.0.0",
         port=port,
         log_level="info",
