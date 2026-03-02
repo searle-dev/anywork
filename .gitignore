@@ -1,6 +1,3 @@
-# Claude Code project context (local only, not for public repo)
-CLAUDE.md
-
 node_modules/
 .next/
 dist/
