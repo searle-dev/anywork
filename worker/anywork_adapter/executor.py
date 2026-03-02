@@ -69,6 +69,9 @@ class SessionExecutor:
         """Connect the ClaudeSDKClient."""
         if self._connected:
             return
+        # Unset CLAUDECODE to avoid nested-session detection when running
+        # inside a Claude Code parent (e.g. local dev launched from Claude Code).
+        os.environ.pop("CLAUDECODE", None)
         self.client = ClaudeSDKClient(options=self.options)
         await self.client.connect()
         self._connected = True
