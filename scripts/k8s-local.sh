@@ -107,7 +107,7 @@ if [[ -f .env ]]; then
 
   # Build --from-literal flags for safe secret creation (handles special chars)
   LITERAL_FLAGS=()
-  for key in ANTHROPIC_API_KEY API_KEY API_BASE_URL; do
+  for key in ANTHROPIC_API_KEY API_KEY API_BASE_URL MODEL; do
     val="${!key:-}"
     if [[ -n "$val" ]]; then
       LITERAL_FLAGS+=("--from-literal=${key}=${val}")

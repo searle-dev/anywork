@@ -56,7 +56,13 @@ spec:
             - name: WORKER_IMAGE
               value: "anywork-worker:latest"
             - name: DEFAULT_MODEL
-              value: "claude-sonnet-4-20250514"
+              valueFrom:
+                secretKeyRef:
+                  name: anywork-secrets
+                  key: MODEL
+                  optional: true
+            - name: TITLE_MODEL
+              value: "openai/gpt-4o-mini"
             - name: K8S_WORKSPACE_STORAGE
               value: "emptydir"   # or "pvc" for persistent workspaces
             # K8S_PVC_STORAGE_CLASS: "standard"   # uncomment for PVC mode
