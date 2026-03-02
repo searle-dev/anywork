@@ -4,6 +4,9 @@
 
 set -e
 
+ROOT_DIR="$(cd "$(dirname "$0")/.." && pwd)"
+cd "$ROOT_DIR"
+
 echo "=== AnyWork Dev Mode ==="
 echo ""
 
@@ -17,31 +20,51 @@ fi
 
 source .env
 
-# Terminal 1: Worker
+# ── Local dev overrides ────────────────────────────────
+DATA_DIR="$ROOT_DIR/data"
+mkdir -p "$DATA_DIR" "$DATA_DIR/workspace"
+
+export DB_DIR="$DATA_DIR"
+export WORKSPACE_DIR="$DATA_DIR/workspace"
+export STATIC_WORKER_URL="http://localhost:${WORKER_PORT:-8080}"
+export CONTAINER_DRIVER="${CONTAINER_DRIVER:-static}"
+
+# macOS AirPlay Receiver occupies port 7000; default to 7001
+WEB_PORT="${WEB_PORT:-7001}"
+
+# ── Check dependencies ─────────────────────────────────
+if [ ! -d "web/node_modules" ]; then
+  echo "[SETUP] Installing web dependencies..."
+  (cd web && npm install)
+fi
+if [ ! -d "server/node_modules" ]; then
+  echo "[SETUP] Installing server dependencies..."
+  (cd server && npm install)
+fi
+
+# ── Start services ─────────────────────────────────────
 echo "[1/3] Starting Worker..."
-(cd worker && WORKSPACE_DIR=../data/workspace python -m anywork_adapter.main) &
+(cd worker && python -m anywork_adapter.main) &
 WORKER_PID=$!
 
 sleep 3
 
-# Terminal 2: Server
 echo "[2/3] Starting Server..."
 (cd server && npm run dev) &
 SERVER_PID=$!
 
 sleep 2
 
-# Terminal 3: Web
 echo "[3/3] Starting Web..."
-(cd web && npm run dev) &
+(cd web && npx next dev --port "$WEB_PORT") &
 WEB_PID=$!
 
 echo ""
 echo "==================================="
 echo "  AnyWork is running!"
-echo "  Web:    http://localhost:7000"
-echo "  Server: http://localhost:3001"
-echo "  Worker: http://localhost:8080"
+echo "  Web:    http://localhost:$WEB_PORT"
+echo "  Server: http://localhost:${SERVER_PORT:-3001}"
+echo "  Worker: http://localhost:${WORKER_PORT:-8080}"
 echo "==================================="
 echo "Press Ctrl+C to stop all services"
 
