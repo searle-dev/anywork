@@ -179,10 +179,14 @@ async function handleWorkerStream(
 
           // Update task status on terminal events
           if (eventType === "done") {
+            const m = metadata as Record<string, unknown>;
             updateTask(taskId, {
               status: "completed",
               result: lastResult || undefined,
               finished_at: now(),
+              ...(m.cost_usd != null ? { cost_usd: m.cost_usd as number } : {}),
+              ...(m.num_turns != null ? { num_turns: m.num_turns as number } : {}),
+              ...(m.duration_ms != null ? { duration_ms: m.duration_ms as number } : {}),
             });
           } else if (eventType === "error") {
             updateTask(taskId, {
