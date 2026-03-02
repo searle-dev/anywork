@@ -7,8 +7,11 @@ import { WebSocketServer } from "ws";
 import { config } from "./config";
 import { getDb } from "./db/schema";
 import sessionsRouter from "./routes/sessions";
+import tasksRouter from "./routes/tasks";
+import channelRouter from "./routes/channel";
 import workspaceRouter from "./routes/workspace";
 import { handleWebSocket } from "./ws/handler";
+import { registerChannel, webChatChannel } from "./channel";
 
 const app = express();
 
@@ -17,20 +20,18 @@ app.use(cors());
 app.use(morgan("short"));
 app.use(express.json());
 
-// Simple auth middleware (dev mode: auto-assign default user)
-app.use((req: any, _res, next) => {
-  // TODO: JWT validation in production
-  req.userId = "default";
-  next();
-});
+// Register channels
+registerChannel(webChatChannel);
 
 // REST routes
 app.use("/api/sessions", sessionsRouter);
+app.use("/api/tasks", tasksRouter);
+app.use("/api/channel", channelRouter);
 app.use("/api/workspace", workspaceRouter);
 
 // Health check
 app.get("/api/health", (_req, res) => {
-  res.json({ status: "ok", version: "0.1.0" });
+  res.json({ status: "ok", version: "0.2.0" });
 });
 
 // Create HTTP server
@@ -50,7 +51,7 @@ getDb();
 server.listen(config.port, () => {
   console.log(`
   ╔══════════════════════════════════════╗
-  ║   AnyWork API Server v0.1.0          ║
+  ║   AnyWork API Server v0.2.0          ║
   ║   http://localhost:${config.port}              ║
   ║   WebSocket: ws://localhost:${config.port}/ws  ║
   ║   Driver: ${config.containerDriver.padEnd(27)}║

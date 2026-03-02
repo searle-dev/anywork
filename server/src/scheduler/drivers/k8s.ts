@@ -2,34 +2,30 @@
  * Kubernetes container driver.
  *
  * Scheduling model: per-session Pod.
- *   - Each chat session gets a dedicated K8s Pod + ClusterIP Service.
- *   - The Pod is created with SKILLS and MCP_SERVERS env vars so the
- *     worker can load the correct tools at startup.
+ *   - Each session gets a dedicated K8s Pod + ClusterIP Service.
+ *   - Skills and MCP are injected via the /prepare endpoint before each task,
+ *     NOT via Pod env vars or init containers.
  *   - Workspace is an emptyDir by default (ephemeral per session).
- *     Set K8S_WORKSPACE_STORAGE=pvc to use per-user PersistentVolumeClaims.
+ *     Set K8S_WORKSPACE_STORAGE=pvc for persistent workspaces.
  *
  * Requirements:
- *   - Server must run inside the cluster (in-cluster service account) OR
- *     have ~/.kube/config with appropriate cluster access.
- *   - RBAC: the server service account needs create/get/delete on
- *     pods and services in the target namespace (see deploy/k8s/rbac.yaml).
+ *   - Server runs inside the cluster (in-cluster SA) or has ~/.kube/config.
+ *   - RBAC: server SA needs create/get/delete on pods, services, PVCs
+ *     in the target namespace (see deploy/k8s/rbac.yaml).
  */
 
 import * as k8s from "@kubernetes/client-node";
-import { ContainerDriver, MCPServerConfig, WorkerEndpoint, WorkerSpec } from "./interface";
+import { ContainerDriver, WorkerEndpoint } from "./interface";
 
 export interface K8sDriverOptions {
   namespace: string;
   workerImage: string;
-  anthropicApiKey: string;
-  apiKey: string;
-  apiBaseUrl: string;
-  defaultModel: string;
+  workerPort?: number;
+  /** Env vars to pass to every worker pod */
+  workerEnv?: Record<string, string>;
   /** "emptydir" (default) or "pvc" */
-  workspaceStorage: "emptydir" | "pvc";
-  /** Storage class for PVC (required when workspaceStorage="pvc") */
+  workspaceStorage?: "emptydir" | "pvc";
   pvcStorageClass?: string;
-  /** CPU/memory limits for worker pods */
   resources?: {
     cpuRequest?: string;
     cpuLimit?: string;
@@ -48,7 +44,6 @@ interface CacheEntry {
 export class K8sDriver implements ContainerDriver {
   private readonly k8sCore: k8s.CoreV1Api;
   private readonly opts: Required<K8sDriverOptions>;
-  /** routingKey → {endpoint, lastUsedAt} */
   private readonly cache = new Map<string, CacheEntry>();
   private cleanupTimer?: ReturnType<typeof setInterval>;
 
@@ -58,6 +53,8 @@ export class K8sDriver implements ContainerDriver {
     this.k8sCore = kc.makeApiClient(k8s.CoreV1Api);
 
     this.opts = {
+      workerPort: 8080,
+      workerEnv: {},
       workspaceStorage: "emptydir",
       pvcStorageClass: "standard",
       resources: {},
@@ -66,52 +63,39 @@ export class K8sDriver implements ContainerDriver {
     };
 
     if (this.opts.idleTtlSeconds > 0) {
-      // Scan for idle pods every 5 minutes
       this.cleanupTimer = setInterval(() => this.cleanupIdlePods(), 5 * 60 * 1000);
     }
   }
 
-  // ---------------------------------------------------------------------------
-  // ContainerDriver implementation
-  // ---------------------------------------------------------------------------
+  // ── ContainerDriver ──────────────────────────────────────
 
-  async getWorkerEndpoint(userId: string, spec?: WorkerSpec): Promise<WorkerEndpoint> {
-    const routingKey = spec?.sessionId
-      ? `session-${spec.sessionId}`
-      : `user-${userId}`;
-    const podName = toK8sName(routingKey);
+  async getWorkerEndpoint(sessionId: string): Promise<WorkerEndpoint> {
+    const podName = toK8sName(`s-${sessionId}`);
 
-    // Return cached healthy endpoint
-    const cached = this.cache.get(routingKey);
+    const cached = this.cache.get(sessionId);
     if (cached && await this.isHealthy(cached.endpoint)) {
       cached.lastUsedAt = Date.now();
       return cached.endpoint;
     }
 
-    // Create (or recreate) the pod and service
-    await this.reconcilePod(podName, userId, spec);
+    await this.reconcilePod(podName, sessionId);
     await this.waitForPodReady(podName, 90);
 
+    const port = this.opts.workerPort;
     const endpoint: WorkerEndpoint = {
-      url: `http://${podName}.${this.opts.namespace}.svc.cluster.local:8080`,
+      url: `http://${podName}.${this.opts.namespace}.svc.cluster.local:${port}`,
       containerId: podName,
     };
 
-    this.cache.set(routingKey, { endpoint, lastUsedAt: Date.now() });
+    this.cache.set(sessionId, { endpoint, lastUsedAt: Date.now() });
     return endpoint;
   }
 
-  async releaseWorker(userId: string): Promise<void> {
-    const keysToDelete: string[] = [];
-    for (const [key] of this.cache) {
-      if (key === `user-${userId}` || key.includes(userId)) {
-        keysToDelete.push(key);
-      }
-    }
-    for (const key of keysToDelete) {
-      const entry = this.cache.get(key)!;
+  async releaseWorker(sessionId: string): Promise<void> {
+    const entry = this.cache.get(sessionId);
+    if (entry) {
       await this.deletePodAndService(entry.endpoint.containerId);
-      this.cache.delete(key);
+      this.cache.delete(sessionId);
     }
   }
 
@@ -126,39 +110,39 @@ export class K8sDriver implements ContainerDriver {
     }
   }
 
-  // ---------------------------------------------------------------------------
-  // Pod lifecycle
-  // ---------------------------------------------------------------------------
+  // ── Pod lifecycle ────────────────────────────────────────
 
-  private async reconcilePod(podName: string, userId: string, spec?: WorkerSpec) {
-    // Check existing pod phase
+  private async reconcilePod(podName: string, sessionId: string) {
     try {
       const { body } = await this.k8sCore.readNamespacedPod(podName, this.opts.namespace);
       const phase = body.status?.phase;
       if (phase === "Running" || phase === "Pending") {
-        // Pod exists, also ensure service exists
         await this.ensureService(podName);
         return;
       }
-      // Pod in terminal state — delete and recreate
       await this.deletePodAndService(podName);
     } catch (e: any) {
       if (e?.response?.statusCode !== 404 && e?.statusCode !== 404) throw e;
     }
 
-    // Ensure workspace PVC for user (if pvc mode)
     if (this.opts.workspaceStorage === "pvc") {
-      await this.ensureWorkspacePVC(userId);
+      await this.ensureWorkspacePVC(sessionId);
     }
 
-    await this.createPod(podName, userId, spec);
+    await this.createPod(podName, sessionId);
     await this.ensureService(podName);
   }
 
-  private async createPod(podName: string, userId: string, spec?: WorkerSpec) {
-    const envVars = this.buildEnvVars(spec);
-    const volumeSpec = this.buildVolume(userId);
+  private async createPod(podName: string, sessionId: string) {
+    const port = this.opts.workerPort;
     const res = this.opts.resources;
+
+    const envVars: k8s.V1EnvVar[] = [
+      { name: "WORKSPACE_DIR", value: "/workspace" },
+      ...Object.entries(this.opts.workerEnv).map(([name, value]) => ({ name, value })),
+    ];
+
+    const volumeSpec = this.buildVolume(sessionId);
 
     const pod: k8s.V1Pod = {
       apiVersion: "v1",
@@ -169,53 +153,42 @@ export class K8sDriver implements ContainerDriver {
         labels: {
           app: "anywork-worker",
           "anywork/pod-name": podName,
-          "anywork/user-id": sanitizeLabel(userId),
-          ...(spec?.sessionId && {
-            "anywork/session-id": sanitizeLabel(spec.sessionId),
-          }),
+          "anywork/session-id": sanitizeLabel(sessionId),
         },
         annotations: {
           "anywork/created-at": new Date().toISOString(),
-          ...(spec?.skills?.length && {
-            "anywork/skills": spec.skills.join(","),
-          }),
-          ...(spec?.engine && {
-            "anywork/engine": spec.engine,
-          }),
         },
       },
       spec: {
         restartPolicy: "Never",
-        containers: [
-          {
-            name: "worker",
-            image: this.opts.workerImage,
-            ports: [{ containerPort: 8080, name: "http" }],
-            env: envVars,
-            resources: {
-              requests: {
-                cpu: res.cpuRequest ?? "250m",
-                memory: res.memoryRequest ?? "512Mi",
-              },
-              limits: {
-                cpu: res.cpuLimit ?? "2000m",
-                memory: res.memoryLimit ?? "2Gi",
-              },
+        containers: [{
+          name: "worker",
+          image: this.opts.workerImage,
+          ports: [{ containerPort: port, name: "http" }],
+          env: envVars,
+          resources: {
+            requests: {
+              cpu: res.cpuRequest ?? "250m",
+              memory: res.memoryRequest ?? "512Mi",
             },
-            readinessProbe: {
-              httpGet: { path: "/health", port: 8080 as any },
-              initialDelaySeconds: 3,
-              periodSeconds: 3,
-              failureThreshold: 20,
+            limits: {
+              cpu: res.cpuLimit ?? "2000m",
+              memory: res.memoryLimit ?? "2Gi",
             },
-            livenessProbe: {
-              httpGet: { path: "/health", port: 8080 as any },
-              initialDelaySeconds: 10,
-              periodSeconds: 15,
-            },
-            volumeMounts: [{ name: "workspace", mountPath: "/workspace" }],
           },
-        ],
+          readinessProbe: {
+            httpGet: { path: "/health", port: port as any },
+            initialDelaySeconds: 3,
+            periodSeconds: 3,
+            failureThreshold: 20,
+          },
+          livenessProbe: {
+            httpGet: { path: "/health", port: port as any },
+            initialDelaySeconds: 10,
+            periodSeconds: 15,
+          },
+          volumeMounts: [{ name: "workspace", mountPath: "/workspace" }],
+        }],
         volumes: [volumeSpec],
       },
     };
@@ -226,7 +199,7 @@ export class K8sDriver implements ContainerDriver {
   private async ensureService(podName: string) {
     try {
       await this.k8sCore.readNamespacedService(podName, this.opts.namespace);
-      return; // Already exists
+      return;
     } catch (e: any) {
       if (e?.response?.statusCode !== 404 && e?.statusCode !== 404) throw e;
     }
@@ -241,7 +214,7 @@ export class K8sDriver implements ContainerDriver {
       },
       spec: {
         selector: { "anywork/pod-name": podName },
-        ports: [{ port: 8080, targetPort: 8080 as any, name: "http" }],
+        ports: [{ port: this.opts.workerPort, targetPort: this.opts.workerPort as any, name: "http" }],
         type: "ClusterIP",
       },
     };
@@ -249,14 +222,11 @@ export class K8sDriver implements ContainerDriver {
     await this.k8sCore.createNamespacedService(this.opts.namespace, svc);
   }
 
-  private async ensureWorkspacePVC(userId: string) {
-    const pvcName = `workspace-${sanitizeLabel(userId)}`;
+  private async ensureWorkspacePVC(sessionId: string) {
+    const pvcName = `ws-${sanitizeLabel(sessionId)}`;
     try {
-      await this.k8sCore.readNamespacedPersistentVolumeClaim(
-        pvcName,
-        this.opts.namespace
-      );
-      return; // Already exists
+      await this.k8sCore.readNamespacedPersistentVolumeClaim(pvcName, this.opts.namespace);
+      return;
     } catch (e: any) {
       if (e?.response?.statusCode !== 404 && e?.statusCode !== 404) throw e;
     }
@@ -272,10 +242,7 @@ export class K8sDriver implements ContainerDriver {
       },
     };
 
-    await this.k8sCore.createNamespacedPersistentVolumeClaim(
-      this.opts.namespace,
-      pvc
-    );
+    await this.k8sCore.createNamespacedPersistentVolumeClaim(this.opts.namespace, pvc);
   }
 
   private async deletePodAndService(podName: string) {
@@ -286,43 +253,13 @@ export class K8sDriver implements ContainerDriver {
     ]);
   }
 
-  // ---------------------------------------------------------------------------
-  // Helpers
-  // ---------------------------------------------------------------------------
+  // ── Helpers ──────────────────────────────────────────────
 
-  private buildEnvVars(spec?: WorkerSpec): k8s.V1EnvVar[] {
-    const env: k8s.V1EnvVar[] = [
-      { name: "WORKSPACE_DIR", value: "/workspace" },
-      { name: "ANTHROPIC_API_KEY", value: this.opts.anthropicApiKey },
-      { name: "API_KEY", value: this.opts.apiKey },
-      { name: "API_BASE_URL", value: this.opts.apiBaseUrl },
-      { name: "DEFAULT_MODEL", value: this.opts.defaultModel },
-      { name: "MODEL", value: this.opts.defaultModel },
-    ];
-
-    if (spec?.engine) {
-      env.push({ name: "ENGINE", value: spec.engine });
-    }
-    if (spec?.skills?.length) {
-      env.push({ name: "SKILLS", value: spec.skills.join(",") });
-    }
-    if (spec?.mcpServers?.length) {
-      env.push({
-        name: "MCP_SERVERS",
-        value: JSON.stringify(spec.mcpServers),
-      });
-    }
-
-    return env;
-  }
-
-  private buildVolume(userId: string): k8s.V1Volume {
+  private buildVolume(sessionId: string): k8s.V1Volume {
     if (this.opts.workspaceStorage === "pvc") {
       return {
         name: "workspace",
-        persistentVolumeClaim: {
-          claimName: `workspace-${sanitizeLabel(userId)}`,
-        },
+        persistentVolumeClaim: { claimName: `ws-${sanitizeLabel(sessionId)}` },
       };
     }
     return { name: "workspace", emptyDir: {} };
@@ -332,28 +269,21 @@ export class K8sDriver implements ContainerDriver {
     const deadline = Date.now() + timeoutSeconds * 1000;
     while (Date.now() < deadline) {
       try {
-        const { body } = await this.k8sCore.readNamespacedPod(
-          podName,
-          this.opts.namespace
-        );
+        const { body } = await this.k8sCore.readNamespacedPod(podName, this.opts.namespace);
         const phase = body.status?.phase;
         if (phase === "Failed" || phase === "Succeeded") {
           throw new Error(`Worker pod ${podName} entered terminal phase: ${phase}`);
         }
         if (phase === "Running") {
-          const containerStatuses = body.status?.containerStatuses ?? [];
-          const allReady = containerStatuses.length > 0 &&
-            containerStatuses.every((cs) => cs.ready);
-          if (allReady) return;
+          const statuses = body.status?.containerStatuses ?? [];
+          if (statuses.length > 0 && statuses.every((cs) => cs.ready)) return;
         }
       } catch (e: any) {
         if (e.message?.includes("terminal phase")) throw e;
       }
       await sleep(2000);
     }
-    throw new Error(
-      `Worker pod ${podName} did not become ready within ${timeoutSeconds}s`
-    );
+    throw new Error(`Worker pod ${podName} did not become ready within ${timeoutSeconds}s`);
   }
 
   private async cleanupIdlePods() {
@@ -369,18 +299,14 @@ export class K8sDriver implements ContainerDriver {
   }
 }
 
-// ---------------------------------------------------------------------------
-// Utility
-// ---------------------------------------------------------------------------
+// ── Utility ────────────────────────────────────────────────
 
-/** Convert an arbitrary routing key to a valid K8s resource name (max 63 chars). */
 function toK8sName(key: string): string {
   const sanitized = key
     .toLowerCase()
     .replace(/[^a-z0-9-]/g, "-")
     .replace(/-+/g, "-")
     .replace(/^-|-$/g, "");
-  // Prefix with "w-" to ensure it starts with a letter, then truncate
   return `w-${sanitized}`.slice(0, 63);
 }
 
