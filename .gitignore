@@ -14,4 +14,4 @@ venv/
 *.sqlite
 data/
 .turbo/
-server/coverage/
+coverage/
