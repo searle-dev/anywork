@@ -6,11 +6,17 @@ import { getContainerDriver } from "../scheduler/container";
 
 const router = Router();
 
-// List all sessions
+// List all sessions (with task counts)
 router.get("/", (_req, res) => {
   const db = getDb();
   const sessions = db
-    .prepare("SELECT id, channel_type, title, created_at, last_active FROM sessions ORDER BY last_active DESC")
+    .prepare(`
+      SELECT s.id, s.channel_type, s.title, s.created_at, s.last_active,
+        (SELECT COUNT(*) FROM tasks t WHERE t.session_id = s.id) AS task_count,
+        (SELECT COUNT(*) FROM tasks t WHERE t.session_id = s.id AND t.status IN ('pending','running','input_required')) AS active_task_count
+      FROM sessions s
+      ORDER BY s.last_active DESC
+    `)
     .all();
   res.json({ sessions });
 });
@@ -65,6 +71,29 @@ router.delete("/:id", (req, res) => {
   db.prepare("DELETE FROM tasks WHERE session_id = ?").run(req.params.id);
   db.prepare("DELETE FROM sessions WHERE id = ?").run(req.params.id);
   res.json({ success: true });
+});
+
+// List tasks for a session
+router.get("/:id/tasks", (req, res) => {
+  const tasks = listTasksBySession(req.params.id);
+  res.json({
+    tasks: tasks.map((t) => ({
+      id: t.id,
+      sessionId: t.session_id,
+      channelType: t.channel_type,
+      status: t.status,
+      message: t.message,
+      result: t.result,
+      error: t.error,
+      costUsd: t.cost_usd,
+      numTurns: t.num_turns,
+      durationMs: t.duration_ms,
+      workerId: t.worker_id,
+      createdAt: t.created_at,
+      startedAt: t.started_at,
+      finishedAt: t.finished_at,
+    })),
+  });
 });
 
 // Get message history for a session (proxied from worker — backward compat)
