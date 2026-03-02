@@ -1,13 +1,14 @@
 "use client";
 
 import { create } from "zustand";
-import type { AdminSession, AdminTask, TaskLog } from "@/lib/adminTypes";
+import type { AdminSession, AdminTask, TaskLog, WorkersOverview } from "@/lib/adminTypes";
 import {
   fetchAdminSessions,
   fetchSessionTasks,
   fetchTaskDetail,
   fetchTaskLogs,
   cancelTask as apiCancelTask,
+  fetchWorkers,
 } from "@/lib/adminApi";
 
 interface AdminState {
@@ -17,11 +18,13 @@ interface AdminState {
   selectedTaskId: string | null;
   taskDetail: AdminTask | null;
   taskLogs: TaskLog[];
+  workersOverview: WorkersOverview | null;
   loadingSessions: boolean;
   loadingTasks: boolean;
   loadingDetail: boolean;
 
   loadSessions: () => Promise<void>;
+  loadWorkers: () => Promise<void>;
   selectSession: (id: string) => Promise<void>;
   selectTask: (id: string) => Promise<void>;
   refreshTaskLogs: (taskId: string, afterSeq?: number) => Promise<void>;
@@ -35,6 +38,7 @@ export const useAdminStore = create<AdminState>((set, get) => ({
   selectedTaskId: null,
   taskDetail: null,
   taskLogs: [],
+  workersOverview: null,
   loadingSessions: false,
   loadingTasks: false,
   loadingDetail: false,
@@ -46,6 +50,15 @@ export const useAdminStore = create<AdminState>((set, get) => ({
       set({ sessions });
     } finally {
       set({ loadingSessions: false });
+    }
+  },
+
+  loadWorkers: async () => {
+    try {
+      const data = await fetchWorkers();
+      set({ workersOverview: data });
+    } catch {
+      // Workers API may not be available
     }
   },
 

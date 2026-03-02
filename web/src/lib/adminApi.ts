@@ -1,5 +1,5 @@
 import { API_URL } from "./api";
-import type { AdminSession, AdminTask, TaskLog } from "./adminTypes";
+import type { AdminSession, AdminTask, TaskLog, WorkersOverview } from "./adminTypes";
 
 export async function fetchAdminSessions(): Promise<AdminSession[]> {
   const res = await fetch(`${API_URL}/api/sessions`);
@@ -30,4 +30,10 @@ export async function fetchTaskLogs(taskId: string, afterSeq: number = 0): Promi
 export async function cancelTask(taskId: string): Promise<void> {
   const res = await fetch(`${API_URL}/api/tasks/${taskId}/cancel`, { method: "POST" });
   if (!res.ok) throw new Error(`Failed to cancel task: ${res.status}`);
+}
+
+export async function fetchWorkers(): Promise<WorkersOverview> {
+  const res = await fetch(`${API_URL}/api/admin/workers`);
+  if (!res.ok) throw new Error(`Failed to fetch workers: ${res.status}`);
+  return res.json();
 }

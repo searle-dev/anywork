@@ -25,6 +25,21 @@ export interface AdminTask {
   finishedAt: number | null;
 }
 
+export interface WorkerInfo {
+  sessionId: string;
+  containerId: string;
+  url: string;
+  healthy: boolean | null;
+}
+
+export interface WorkersOverview {
+  driver: string;
+  workerImage: string;
+  staticWorkerUrl?: string;
+  k8s?: { namespace: string; workspaceStorage: string; idleTtlSeconds: number };
+  workers: WorkerInfo[];
+}
+
 export interface TaskLog {
   seq: number;
   type: string;

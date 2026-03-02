@@ -2,7 +2,7 @@
 
 import { useEffect } from "react";
 import Link from "next/link";
-import { ArrowLeft, LayoutDashboard } from "lucide-react";
+import { ArrowLeft, LayoutDashboard, Server } from "lucide-react";
 import { useAdminStore } from "@/stores/adminStore";
 import { SessionList } from "@/components/admin/SessionList";
 import { TaskList } from "@/components/admin/TaskList";
@@ -10,10 +10,13 @@ import { TaskDetail } from "@/components/admin/TaskDetail";
 
 export default function AdminPage() {
   const loadSessions = useAdminStore((s) => s.loadSessions);
+  const loadWorkers = useAdminStore((s) => s.loadWorkers);
+  const workersOverview = useAdminStore((s) => s.workersOverview);
 
   useEffect(() => {
     loadSessions();
-  }, [loadSessions]);
+    loadWorkers();
+  }, [loadSessions, loadWorkers]);
 
   return (
     <div className="h-screen flex flex-col" style={{ background: "var(--bg-primary)" }}>
@@ -27,6 +30,22 @@ export default function AdminPage() {
           <LayoutDashboard size={16} className="text-blue-500" />
           <span className="font-semibold text-sm">AnyWork Admin</span>
         </div>
+        {workersOverview && (
+          <div className="ml-auto flex items-center gap-2 text-xs" style={{ color: "var(--text-secondary)" }}>
+            <Server size={13} />
+            <span>Driver: <strong className="text-[var(--text-primary)]">{workersOverview.driver}</strong></span>
+            <span>&middot;</span>
+            <span>Workers: <strong className="text-[var(--text-primary)]">{workersOverview.workers.length}</strong></span>
+            {workersOverview.workers.length > 0 && (
+              <>
+                <span>&middot;</span>
+                <span className={workersOverview.workers.every(w => w.healthy) ? "text-green-400" : "text-yellow-400"}>
+                  {workersOverview.workers.filter(w => w.healthy).length}/{workersOverview.workers.length} healthy
+                </span>
+              </>
+            )}
+          </div>
+        )}
       </header>
 
       {/* Three-panel layout */}
