@@ -11,7 +11,7 @@ import tasksRouter from "./routes/tasks";
 import channelRouter from "./routes/channel";
 import adminRouter from "./routes/admin";
 import { handleWebSocket } from "./ws/handler";
-import { registerChannel, webChatChannel } from "./channel";
+import { registerChannel, webChatChannel, webhookChannel } from "./channel";
 
 const app = express();
 
@@ -22,6 +22,7 @@ app.use(express.json());
 
 // Register channels
 registerChannel(webChatChannel);
+registerChannel(webhookChannel);
 
 // REST routes
 app.use("/api/sessions", sessionsRouter);
