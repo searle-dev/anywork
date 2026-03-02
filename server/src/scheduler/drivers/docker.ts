@@ -84,6 +84,10 @@ export class DockerDriver implements ContainerDriver {
     return endpoint;
   }
 
+  listEndpoints(): Map<string, WorkerEndpoint> {
+    return new Map(this.containers);
+  }
+
   async releaseWorker(sessionId: string): Promise<void> {
     const containerName = `anywork-worker-${sessionId}`;
     try {

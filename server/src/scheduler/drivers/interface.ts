@@ -26,4 +26,7 @@ export interface ContainerDriver {
 
   /** Health check. */
   isHealthy(endpoint: WorkerEndpoint): Promise<boolean>;
+
+  /** List all known worker endpoints (optional, for admin dashboard). */
+  listEndpoints?(): Map<string, WorkerEndpoint>;
 }

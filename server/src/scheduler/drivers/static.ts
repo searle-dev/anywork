@@ -22,6 +22,12 @@ export class StaticDriver implements ContainerDriver {
     };
   }
 
+  listEndpoints(): Map<string, WorkerEndpoint> {
+    const map = new Map<string, WorkerEndpoint>();
+    map.set("*", { url: this.workerUrl, containerId: "static-worker" });
+    return map;
+  }
+
   async releaseWorker(_sessionId: string): Promise<void> {
     // No-op for static worker
   }
