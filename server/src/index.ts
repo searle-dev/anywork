@@ -9,7 +9,6 @@ import { getDb } from "./db/schema";
 import sessionsRouter from "./routes/sessions";
 import tasksRouter from "./routes/tasks";
 import channelRouter from "./routes/channel";
-import workspaceRouter from "./routes/workspace";
 import adminRouter from "./routes/admin";
 import { handleWebSocket } from "./ws/handler";
 import { registerChannel, webChatChannel } from "./channel";
@@ -28,7 +27,6 @@ registerChannel(webChatChannel);
 app.use("/api/sessions", sessionsRouter);
 app.use("/api/tasks", tasksRouter);
 app.use("/api/channel", channelRouter);
-app.use("/api/workspace", workspaceRouter);
 app.use("/api/admin", adminRouter);
 
 // Health check

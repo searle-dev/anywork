@@ -95,8 +95,7 @@ Browser ←WebSocket→ Server ←HTTP/SSE→ Worker (Claude Agent SDK)
 - `web/src/components/chat/ChatPanel.tsx` — Chat message list + streaming display
 - `web/src/components/chat/InputBar.tsx` — Message input with Enter-to-send
 - `web/src/components/chat/MessageBubble.tsx` — User/assistant message rendering (markdown)
-- `web/src/components/sidebar/Sidebar.tsx` — Session list + new chat button + settings gear
-- `web/src/components/settings/WorkspaceEditor.tsx` — Modal editor for SOUL.md / AGENTS.md
+- `web/src/components/sidebar/Sidebar.tsx` — Session list + new chat button
 - `web/src/lib/api.ts` — `API_URL`, `WS_URL` constants + fetch helpers
 - `web/src/lib/types.ts` — TypeScript interfaces (Session, ChatMessage, ServerEvent, etc.)
 
@@ -113,7 +112,6 @@ Browser ←WebSocket→ Server ←HTTP/SSE→ Worker (Claude Agent SDK)
 - `server/src/routes/sessions.ts` — REST CRUD for sessions
 - `server/src/routes/tasks.ts` — Task query / logs / cancel API
 - `server/src/routes/channel.ts` — Unified webhook entry (`POST /api/channel/:type/webhook`)
-- `server/src/routes/workspace.ts` — Proxy GET/PUT for workspace files
 - `server/src/lib/titleGen.ts` — LLM title generation (fire-and-forget)
 - `server/src/scheduler/container.ts` — Container driver factory
 - `server/src/scheduler/drivers/interface.ts` — `ContainerDriver` interface (sessionId-based)
@@ -125,7 +123,7 @@ Browser ←WebSocket→ Server ←HTTP/SSE→ Worker (Claude Agent SDK)
 - `worker/anywork_adapter/main.py` — Entry: init workspace, start uvicorn
 - `worker/anywork_adapter/executor.py` — **Core**: SessionExecutor wrapping ClaudeSDKClient
 - `worker/anywork_adapter/http_app.py` — FastAPI: /prepare, /chat (SSE), /cancel, /health
-- `worker/anywork_adapter/workspace_init.py` — Creates workspace dirs + default SOUL.md
+- `worker/anywork_adapter/workspace_init.py` — Creates workspace dirs + default CLAUDE.md
 
 ## Architecture Patterns
 
@@ -236,14 +234,6 @@ POST /cancel      → Server→Worker: interrupt current task
 GET  /health      → health check
 ```
 
-### Workspace API (proxied via server or direct to worker)
-```
-GET  /api/workspace/soul        → { file, content }
-PUT  /api/workspace/soul        Body: { content }
-GET  /api/workspace/agents      → { file, content }
-PUT  /api/workspace/agents      Body: { content }
-```
-
 ## Code Conventions
 
 - **TypeScript**: strict mode, `@/*` path aliases, camelCase vars, PascalCase types
@@ -256,7 +246,7 @@ PUT  /api/workspace/agents      Body: { content }
 
 ```
 /workspace/
-├── SOUL.md              # Agent system prompt (editable via UI)
+├── CLAUDE.md            # Project instructions (Claude Code reads natively)
 ├── .mcp.json            # MCP server config (written by /prepare)
 ├── sessions/            # Conversation history (JSONL per session)
 ├── files/               # User files and agent outputs

@@ -1,15 +1,12 @@
 "use client";
 
-import { useState } from "react";
 import { useChatStore } from "@/stores/chatStore";
 import { fetchSessionMessages, deleteSession } from "@/lib/api";
 import Link from "next/link";
-import { Plus, MessageSquare, Zap, Settings, Trash2, LayoutDashboard } from "lucide-react";
-import { WorkspaceEditor } from "@/components/settings/WorkspaceEditor";
+import { Plus, MessageSquare, Zap, Trash2, LayoutDashboard } from "lucide-react";
 
 export function Sidebar() {
   const { sessions, activeSessionId, isStreaming, setActiveSession, setMessages, removeSession } = useChatStore();
-  const [editorOpen, setEditorOpen] = useState(false);
 
   const handleNewChat = () => {
     setActiveSession(null);
@@ -99,17 +96,10 @@ export function Sidebar() {
       <div className="p-3 text-xs flex items-center justify-between"
            style={{ color: "var(--text-secondary)" }}>
         <span>Open Source &middot; MIT License</span>
-        <div className="flex items-center gap-2">
-          <Link href="/admin" className="hover:text-[var(--text-primary)] transition-colors" title="Admin Dashboard">
-            <LayoutDashboard size={14} />
-          </Link>
-          <button onClick={() => setEditorOpen(true)}
-            className="hover:text-[var(--text-primary)] transition-colors">
-            <Settings size={14} />
-          </button>
-        </div>
+        <Link href="/admin" className="hover:text-[var(--text-primary)] transition-colors" title="Admin Dashboard">
+          <LayoutDashboard size={14} />
+        </Link>
       </div>
-      <WorkspaceEditor open={editorOpen} onClose={() => setEditorOpen(false)} />
     </aside>
   );
 }

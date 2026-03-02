@@ -19,21 +19,6 @@ export async function fetchSessionMessages(sessionId: string): Promise<{ message
   return res.json();
 }
 
-export async function getWorkspaceFile(name: "soul" | "agents"): Promise<string> {
-  const res = await fetch(`${API_URL}/api/workspace/${name}`);
-  if (!res.ok) return "";
-  const data = await res.json();
-  return data.content ?? "";
-}
-
 export async function deleteSession(sessionId: string): Promise<void> {
   await fetch(`${API_URL}/api/sessions/${sessionId}`, { method: "DELETE" });
-}
-
-export async function updateWorkspaceFile(name: "soul" | "agents", content: string): Promise<void> {
-  await fetch(`${API_URL}/api/workspace/${name}`, {
-    method: "PUT",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ content }),
-  });
 }

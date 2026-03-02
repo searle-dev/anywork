@@ -8,8 +8,6 @@ Endpoints:
   GET  /health   — Health check
   GET  /sessions — List sessions (backward compat)
   GET  /sessions/{session_id} — Get session history (backward compat)
-  GET  /workspace/{file} — Read workspace file
-  PUT  /workspace/{file} — Update workspace file
 """
 from __future__ import annotations
 
@@ -171,31 +169,6 @@ async def get_session(session_id: str):
             return {"session_id": session_id, "messages": messages}
 
     return JSONResponse({"session_id": session_id, "messages": []}, status_code=404)
-
-
-@app.get("/workspace/{file}")
-async def get_workspace_file(file: str):
-    """Read a workspace file (soul, agents)."""
-    file_map = {"soul": "SOUL.md", "agents": "AGENTS.md"}
-    filename = file_map.get(file, file)
-    fpath = Path(WORKSPACE_DIR) / filename
-
-    if not fpath.exists():
-        return JSONResponse({"file": filename, "content": ""}, status_code=404)
-
-    return {"file": filename, "content": fpath.read_text()}
-
-
-@app.put("/workspace/{file}")
-async def put_workspace_file(file: str, body: dict[str, Any]):
-    """Update a workspace file."""
-    file_map = {"soul": "SOUL.md", "agents": "AGENTS.md"}
-    filename = file_map.get(file, file)
-    fpath = Path(WORKSPACE_DIR) / filename
-
-    content = body.get("content", "")
-    fpath.write_text(content)
-    return {"success": True}
 
 
 # ── Helpers ─────────────────────────────────────────────────
