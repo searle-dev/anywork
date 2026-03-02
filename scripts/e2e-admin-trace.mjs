@@ -180,7 +180,7 @@ async function traceTaskDetail(taskId) {
 }
 
 async function traceTaskLogs(taskId) {
-  separator("Step 5: Trace Execution Logs (Admin API)");
+  separator("Step 6: Trace Execution Logs (Admin API)");
 
   // 5a. GET /api/tasks/:taskId/logs
   const { logs, hasMore } = await fetchJSON(`/api/tasks/${taskId}/logs?after=0`);
@@ -240,6 +240,46 @@ async function traceTaskLogs(taskId) {
   return logs;
 }
 
+async function traceWorkerScheduling(workerId, sessionId) {
+  separator("Step 5: Trace Worker Scheduling (Admin API)");
+
+  // 5a. GET /api/admin/workers — scheduler overview
+  const overview = await fetchJSON("/api/admin/workers");
+  assertOk(overview.driver, `Driver type: "${overview.driver}"`);
+  assertOk(overview.workers.length > 0, `${overview.workers.length} active worker(s)`);
+
+  log("INFO", `Driver: ${overview.driver}`);
+  log("INFO", `Worker image: ${overview.workerImage}`);
+  if (overview.staticWorkerUrl) {
+    log("INFO", `Static URL: ${overview.staticWorkerUrl}`);
+  }
+  if (overview.k8s) {
+    log("INFO", `K8s namespace: ${overview.k8s.namespace}, storage: ${overview.k8s.workspaceStorage}`);
+  }
+
+  // 5b. Find the worker that served our task
+  const matched = overview.workers.find(
+    (w) => w.containerId === workerId || w.sessionId === sessionId,
+  );
+  assertOk(matched, `Found worker endpoint for task (id=${workerId})`);
+  assertOk(matched.url, `Worker URL: ${matched.url}`);
+  assertOk(matched.healthy === true, `Worker health: ${matched.healthy ? "healthy" : "unhealthy"}`);
+
+  // 5c. Print worker details
+  console.log("");
+  console.log("  Worker Scheduling:");
+  console.log("  ┌──────────────────────────────────────────────");
+  console.log(`  │  Driver:       ${overview.driver}`);
+  console.log(`  │  Worker ID:    ${matched.containerId}`);
+  console.log(`  │  Session:      ${matched.sessionId}`);
+  console.log(`  │  Endpoint:     ${matched.url}`);
+  console.log(`  │  Health:       ${matched.healthy ? "✓ healthy" : "✗ unhealthy"}`);
+  console.log(`  │  Image:        ${overview.workerImage}`);
+  console.log("  └──────────────────────────────────────────────");
+
+  return overview;
+}
+
 function inferWorkerType(workerId) {
   if (!workerId) return "unknown";
   if (workerId === "static-worker") return "Static (docker-compose)";
@@ -295,12 +335,16 @@ async function main() {
     const detail = await traceTaskDetail(task.id);
     passed.push("Task detail tracing");
 
-    // ── Step 5: Trace Execution Logs ──
+    // ── Step 5: Trace Worker Scheduling ──
+    const workerOverview = await traceWorkerScheduling(detail.workerId, detail.sessionId);
+    passed.push("Worker scheduling tracing");
+
+    // ── Step 6: Trace Execution Logs ──
     const logs = await traceTaskLogs(task.id);
     passed.push("Execution log tracing");
 
-    // ── Step 6: Full Pipeline Summary ──
-    separator("Step 6: Full Pipeline Summary");
+    // ── Step 7: Full Pipeline Summary ──
+    separator("Step 7: Full Pipeline Summary");
 
     const workerType = inferWorkerType(detail.workerId);
     const pipeline = [
@@ -324,7 +368,10 @@ async function main() {
     console.log(`  │    ↓ createTask()`);
     console.log(`  │  Task: ${task.id.slice(0, 8)}... status=${task.status}`);
     console.log(`  │    ↓ dispatch()`);
-    console.log(`  │  Worker: ${detail.workerId || "n/a"} (${workerType})`);
+    console.log(`  │  Scheduler: driver=${workerOverview.driver}, image=${workerOverview.workerImage}`);
+    console.log(`  │    ↓ getWorkerEndpoint()`);
+    const matchedW = workerOverview.workers.find(w => w.containerId === detail.workerId);
+    console.log(`  │  Worker: ${detail.workerId || "n/a"} (${workerType}) → ${matchedW?.url || "?"} [${matchedW?.healthy ? "healthy" : "?"}]`);
     console.log(`  │    ↓ /chat SSE stream`);
     console.log(`  │  Logs: ${logs.length} events (${Object.entries(logs.reduce((a, l) => ({ ...a, [l.type]: (a[l.type] || 0) + 1 }), {})).map(([k, v]) => `${k}:${v}`).join(" ")})`);
     console.log(`  │    ↓ result`);
@@ -333,8 +380,8 @@ async function main() {
 
     passed.push("Full pipeline summary");
 
-    // ── Step 7: Incremental log polling (simulates admin dashboard live view) ──
-    separator("Step 7: Incremental Log Polling");
+    // ── Step 8: Incremental log polling (simulates admin dashboard live view) ──
+    separator("Step 8: Incremental Log Polling");
     const midSeq = Math.floor(logs.length / 2);
     const incremental = await fetchJSON(`/api/tasks/${task.id}/logs?after=${midSeq}`);
     assertOk(
