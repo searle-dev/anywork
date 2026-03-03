@@ -10,7 +10,7 @@
     "test": "vitest run",
     "test:watch": "vitest",
     "test:coverage": "vitest run --coverage",
-    "e2e:k8s": "tsx ../scripts/e2e-k8s.ts"
+    "e2e:k8s": "tsx e2e-k8s.ts"
   },
   "dependencies": {
     "@kubernetes/client-node": "^1.0.0",

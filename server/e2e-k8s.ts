@@ -123,7 +123,7 @@ function sleep(ms: number) { return new Promise(r => setTimeout(r, ms)); }
 // ── Detect Git Repo URL ────────────────────────────────────
 function getRepoUrl(): string {
   try {
-    let url = execSync("git remote get-url origin", { encoding: "utf-8", cwd: `${__dirname}/..` }).trim();
+    let url = execSync("git remote get-url origin", { encoding: "utf-8" }).trim();
     // Convert SSH to HTTPS for worker access
     if (url.startsWith("git@")) {
       url = url.replace(/^git@([^:]+):(.+)$/, "https://$1/$2");
@@ -255,14 +255,22 @@ ${B}${C}╔═══════════════════════
 
     if (result.status === "completed") {
       ok("Task completed");
+      // Check result field or fall back to task_logs for tool-heavy tasks
       if (result.result) {
         ok(`Result (${result.result.length} chars): ${preview(result.result, 150)}`);
-        // Verify result mentions line counts (loose check)
-        if (repoUrl && /\d+/.test(result.result)) {
-          ok("Result contains numeric data (line counts)");
-        }
       } else {
-        ng("Result is empty");
+        // Worker may use tool_call/tool_result events without text events
+        const { logs } = await get(`/api/tasks/${webhookTaskId}/logs?after=-1&limit=50`);
+        const toolLogs = logs.filter((l: any) => l.type === "tool_call" || l.type === "tool_result");
+        if (toolLogs.length > 0) {
+          ok(`Task executed ${toolLogs.length} tool calls (result in task_logs)`);
+          const allContent = logs.map((l: any) => l.content).join(" ");
+          if (/\d+/.test(allContent)) {
+            ok("Task logs contain numeric data (line counts)");
+          }
+        } else {
+          ng("No result or tool calls found");
+        }
       }
     } else {
       ng(`Task ${result.status}: ${result.error || "unknown"}`);

@@ -75,9 +75,12 @@ ok "kubectl context set to k3d-${CLUSTER_NAME}"
 
 # ── 3. Build Docker images (parallel) ─────────────────────
 info "Building server and worker images in parallel..."
-docker build -t anywork-server:latest server/ &
+# Clear proxy env to avoid build failures when proxy is unreachable
+docker build --build-arg http_proxy= --build-arg https_proxy= --build-arg HTTP_PROXY= --build-arg HTTPS_PROXY= \
+  -t anywork-server:latest server/ &
 BUILD_SERVER_PID=$!
-docker build -t anywork-worker:latest worker/ &
+docker build --build-arg http_proxy= --build-arg https_proxy= --build-arg HTTP_PROXY= --build-arg HTTPS_PROXY= \
+  -t anywork-worker:latest worker/ &
 BUILD_WORKER_PID=$!
 
 wait "$BUILD_SERVER_PID" || err "Server image build failed"

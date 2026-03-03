@@ -37,6 +37,13 @@ export function getContainerDriver(): ContainerDriver {
           API_KEY: config.apiKey,
           API_BASE_URL: config.apiBaseUrl,
           MODEL: config.defaultModel,
+          // Pass proxy settings to worker pods if configured
+          ...(config.workerHttpProxy ? {
+            HTTP_PROXY: config.workerHttpProxy,
+            HTTPS_PROXY: config.workerHttpProxy,
+            http_proxy: config.workerHttpProxy,
+            https_proxy: config.workerHttpProxy,
+          } : {}),
         },
         workspaceStorage: config.k8s.workspaceStorage,
         pvcStorageClass: config.k8s.pvcStorageClass,

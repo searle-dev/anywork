@@ -166,6 +166,7 @@ export class K8sDriver implements ContainerDriver {
         containers: [{
           name: "worker",
           image: this.opts.workerImage,
+          imagePullPolicy: "Never",
           ports: [{ containerPort: port, name: "http" }],
           env: envVars,
           resources: {
@@ -312,7 +313,11 @@ export class K8sDriver implements ContainerDriver {
 
 function isNotFound(e: unknown): boolean {
   const err = e as any;
-  return err?.response?.statusCode === 404 || err?.statusCode === 404;
+  // client-node <1.0: err.response.statusCode  /  >=1.0: HttpException with statusCode or message containing "404"
+  return err?.response?.statusCode === 404
+    || err?.statusCode === 404
+    || err?.body?.includes?.('"code":404')
+    || (typeof err?.message === "string" && err.message.includes("HTTP-Code: 404"));
 }
 
 // ── Utility ────────────────────────────────────────────────

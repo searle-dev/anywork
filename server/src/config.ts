@@ -59,4 +59,7 @@ export const config = {
     /** Seconds a pod can be idle before auto-cleanup (0 = disabled) */
     idleTtlSeconds: parseInt(process.env.K8S_IDLE_TTL_SECONDS || "1800", 10),
   },
+
+  /** HTTP proxy for worker pods to access external APIs (e.g. LLM endpoints) */
+  workerHttpProxy: process.env.WORKER_HTTP_PROXY || "",
 };
