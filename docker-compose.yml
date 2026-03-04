@@ -33,10 +33,17 @@ services:
       - LOCAL_DATA_DIR=/data/users
       - DB_DIR=/data
       - JWT_SECRET=dev-secret-local
-      # LLM for title generation (same provider as worker)
-      - API_KEY=${API_KEY:-}
-      - API_BASE_URL=${API_BASE_URL:-}
-      - MODEL=${MODEL:-}
+      # LLM env (auto-collected by config.ts collectLlmEnv)
+      - ANTHROPIC_API_KEY=${ANTHROPIC_API_KEY:-}
+      - ANTHROPIC_AUTH_TOKEN=${ANTHROPIC_AUTH_TOKEN:-}
+      - ANTHROPIC_BASE_URL=${ANTHROPIC_BASE_URL:-}
+      - ANTHROPIC_MODEL=${ANTHROPIC_MODEL:-}
+      - ANTHROPIC_DEFAULT_SONNET_MODEL=${ANTHROPIC_DEFAULT_SONNET_MODEL:-}
+      - ANTHROPIC_DEFAULT_HAIKU_MODEL=${ANTHROPIC_DEFAULT_HAIKU_MODEL:-}
+      - ANTHROPIC_DEFAULT_OPUS_MODEL=${ANTHROPIC_DEFAULT_OPUS_MODEL:-}
+      # Title generation
+      - TITLE_API_KEY=${TITLE_API_KEY:-}
+      - TITLE_API_BASE_URL=${TITLE_API_BASE_URL:-}
       - TITLE_MODEL=${TITLE_MODEL:-}
     volumes:
       - anywork-data:/data
@@ -45,21 +52,20 @@ services:
         condition: service_healthy
     restart: unless-stopped
 
-  # --- Worker (nanobot agent) ---
+  # --- Worker (Claude Agent SDK) ---
   worker:
     build: ./worker
     environment:
       - WORKSPACE_DIR=/workspace
       - WORKER_PORT=8080
-      # LLM Provider config - set in .env file
-      - API_STYLE=${API_STYLE:-openai}
-      - API_BASE_URL=${API_BASE_URL:-}
-      - API_KEY=${API_KEY:-}
-      - MODEL=${MODEL:-}
-      # Legacy backward compat
+      # LLM Provider — all ANTHROPIC_* vars passed through from .env
       - ANTHROPIC_API_KEY=${ANTHROPIC_API_KEY:-}
-      - OPENAI_API_KEY=${OPENAI_API_KEY:-}
-      - BRAVE_API_KEY=${BRAVE_API_KEY:-}
+      - ANTHROPIC_AUTH_TOKEN=${ANTHROPIC_AUTH_TOKEN:-}
+      - ANTHROPIC_BASE_URL=${ANTHROPIC_BASE_URL:-}
+      - ANTHROPIC_MODEL=${ANTHROPIC_MODEL:-}
+      - ANTHROPIC_DEFAULT_SONNET_MODEL=${ANTHROPIC_DEFAULT_SONNET_MODEL:-}
+      - ANTHROPIC_DEFAULT_HAIKU_MODEL=${ANTHROPIC_DEFAULT_HAIKU_MODEL:-}
+      - ANTHROPIC_DEFAULT_OPUS_MODEL=${ANTHROPIC_DEFAULT_OPUS_MODEL:-}
     volumes:
       - anywork-workspace:/workspace
     healthcheck:

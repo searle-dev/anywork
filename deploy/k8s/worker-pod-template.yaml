@@ -9,6 +9,7 @@
 #   - Skills and MCP config are injected via the /prepare endpoint
 #   - Worker runs Claude Agent SDK (ClaudeSDKClient)
 #   - Workspace is mounted as emptyDir (ephemeral) or a user PVC
+#   - All ANTHROPIC_* vars are injected by the server's collectLlmEnv()
 
 ---
 apiVersion: v1
@@ -35,34 +36,37 @@ spec:
       env:
         - name: WORKSPACE_DIR
           value: /workspace
+        # ANTHROPIC_* vars are injected dynamically by K8sDriver from config.llmEnv.
+        # Below are examples for manual testing / reference:
         - name: ANTHROPIC_API_KEY
           valueFrom:
             secretKeyRef:
               name: anywork-secrets
               key: ANTHROPIC_API_KEY
+              optional: true
+        - name: ANTHROPIC_AUTH_TOKEN
+          valueFrom:
+            secretKeyRef:
+              name: anywork-secrets
+              key: ANTHROPIC_AUTH_TOKEN
+              optional: true
         - name: ANTHROPIC_BASE_URL
           valueFrom:
             secretKeyRef:
               name: anywork-secrets
-              key: API_BASE_URL
+              key: ANTHROPIC_BASE_URL
               optional: true
         - name: ANTHROPIC_MODEL
           valueFrom:
             secretKeyRef:
               name: anywork-secrets
-              key: MODEL
+              key: ANTHROPIC_MODEL
               optional: true
         - name: ANTHROPIC_DEFAULT_SONNET_MODEL
           valueFrom:
             secretKeyRef:
               name: anywork-secrets
-              key: MODEL
-              optional: true
-        - name: MODEL
-          valueFrom:
-            secretKeyRef:
-              name: anywork-secrets
-              key: MODEL
+              key: ANTHROPIC_DEFAULT_SONNET_MODEL
               optional: true
       readinessProbe:
         httpGet:

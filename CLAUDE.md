@@ -12,7 +12,7 @@ Architecture: `Channel → Task → Dispatcher → Worker (Claude Agent SDK)`
 
 ```bash
 # Docker Compose (recommended)
-cp .env.example .env   # fill in API_KEY, API_BASE_URL, MODEL
+cp .env.example .env   # fill in ANTHROPIC_* variables
 docker compose up --build
 # Open http://localhost:7000
 
@@ -138,25 +138,30 @@ Browser ←WebSocket→ Server ←HTTP/SSE→ Worker (Claude Agent SDK)
 
 ## Environment Variables
 
-### LLM (passed to worker via docker-compose or K8s env)
+### LLM (auto-collected ANTHROPIC_*/CLAUDE_* vars, passed to workers)
 ```bash
+# Option A: Anthropic Official
 ANTHROPIC_API_KEY=sk-ant-xxxxx
-# or OpenAI-compatible
-API_KEY=sk-or-xxxxx
-API_BASE_URL=https://openrouter.ai/api/v1
-MODEL=anthropic/claude-sonnet-4-20250514
+
+# Option B: Third-party provider (e.g. OpenRouter)
+ANTHROPIC_BASE_URL=https://openrouter.ai/api/v1
+ANTHROPIC_AUTH_TOKEN=sk-or-xxxxx
+ANTHROPIC_API_KEY=              # empty string required for third-party
+ANTHROPIC_MODEL=anthropic/claude-sonnet-4-20250514
+# ANTHROPIC_DEFAULT_SONNET_MODEL=...
+# ANTHROPIC_DEFAULT_HAIKU_MODEL=...
+# ANTHROPIC_DEFAULT_OPUS_MODEL=...
 ```
 
 ### Server
 ```bash
 SERVER_PORT=3001
 CONTAINER_DRIVER=static    # static | docker | k8s
-STATIC_WORKER_URL=http://worker:8080
 DB_DIR=/data
 
-# Title generation
-API_KEY=...
-API_BASE_URL=...
+# Title generation (falls back to ANTHROPIC_* values)
+TITLE_API_KEY=...
+TITLE_API_BASE_URL=...
 TITLE_MODEL=openai/gpt-4o-mini
 ```
 
