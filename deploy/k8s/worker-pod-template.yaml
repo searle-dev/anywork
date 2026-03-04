@@ -40,10 +40,30 @@ spec:
             secretKeyRef:
               name: anywork-secrets
               key: ANTHROPIC_API_KEY
-        - name: DEFAULT_MODEL
-          value: "claude-sonnet-4-20250514"
+        - name: ANTHROPIC_BASE_URL
+          valueFrom:
+            secretKeyRef:
+              name: anywork-secrets
+              key: API_BASE_URL
+              optional: true
+        - name: ANTHROPIC_MODEL
+          valueFrom:
+            secretKeyRef:
+              name: anywork-secrets
+              key: MODEL
+              optional: true
+        - name: ANTHROPIC_DEFAULT_SONNET_MODEL
+          valueFrom:
+            secretKeyRef:
+              name: anywork-secrets
+              key: MODEL
+              optional: true
         - name: MODEL
-          value: "claude-sonnet-4-20250514"
+          valueFrom:
+            secretKeyRef:
+              name: anywork-secrets
+              key: MODEL
+              optional: true
       readinessProbe:
         httpGet:
           path: /health

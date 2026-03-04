@@ -17,6 +17,7 @@ stringData:
   ANTHROPIC_API_KEY: ""
   API_KEY: ""
   API_BASE_URL: ""
+  MODEL: ""
   JWT_SECRET: "change-me-in-production"
 
 ---

@@ -38,7 +38,11 @@ def _build_options() -> ClaudeAgentOptions:
         except Exception as e:
             logger.warning(f"Failed to read .mcp.json: {e}")
 
-    model = os.environ.get("MODEL") or os.environ.get("DEFAULT_MODEL")
+    # Collect ANTHROPIC_* env vars to pass through to the Claude CLI subprocess
+    anthropic_env = {
+        k: v for k, v in os.environ.items()
+        if k.startswith("ANTHROPIC_") and v
+    }
 
     opts = ClaudeAgentOptions(
         cwd=workspace,
@@ -48,8 +52,9 @@ def _build_options() -> ClaudeAgentOptions:
         setting_sources=["project"],
     )
 
-    if model:
-        opts.model = model
+    if anthropic_env:
+        opts.env = anthropic_env
+
     if mcp_servers:
         opts.mcp_servers = mcp_servers
 

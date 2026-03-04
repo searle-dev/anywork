@@ -37,6 +37,10 @@ export function getContainerDriver(): ContainerDriver {
           API_KEY: config.apiKey,
           API_BASE_URL: config.apiBaseUrl,
           MODEL: config.defaultModel,
+          // Claude CLI reads ANTHROPIC_* env vars for authentication
+          ANTHROPIC_BASE_URL: config.apiBaseUrl,
+          ANTHROPIC_MODEL: config.defaultModel,
+          ANTHROPIC_DEFAULT_SONNET_MODEL: config.defaultModel,
           // Pass proxy settings to worker pods if configured
           ...(config.workerHttpProxy ? {
             HTTP_PROXY: config.workerHttpProxy,
