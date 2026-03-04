@@ -37,7 +37,7 @@ function createDriver(overrides: Partial<K8sDriverOptions> = {}): K8sDriver {
     namespace: "test-ns",
     workerImage: "anywork-worker:latest",
     workerPort: 8080,
-    workerEnv: { ANTHROPIC_API_KEY: "sk-test", MODEL: "claude-sonnet" },
+    workerEnv: { ANTHROPIC_API_KEY: "sk-test", ANTHROPIC_DEFAULT_SONNET_MODEL: "claude-sonnet" },
     workspaceStorage: "emptydir",
     resources: {
       cpuRequest: "250m",
@@ -178,7 +178,7 @@ describe("K8sDriver — Pod Spec & Isolation", () => {
 
   it("should inject environment variables correctly", async () => {
     const driver = createDriver({
-      workerEnv: { ANTHROPIC_API_KEY: "sk-abc", MODEL: "claude-opus" },
+      workerEnv: { ANTHROPIC_API_KEY: "sk-abc", ANTHROPIC_MODEL: "claude-opus" },
     });
     setupPodReadyFlow();
 
@@ -188,7 +188,7 @@ describe("K8sDriver — Pod Spec & Isolation", () => {
     const envVars = pod.spec.containers[0].env;
     expect(envVars).toContainEqual({ name: "WORKSPACE_DIR", value: "/workspace" });
     expect(envVars).toContainEqual({ name: "ANTHROPIC_API_KEY", value: "sk-abc" });
-    expect(envVars).toContainEqual({ name: "MODEL", value: "claude-opus" });
+    expect(envVars).toContainEqual({ name: "ANTHROPIC_MODEL", value: "claude-opus" });
   });
 
   it("should set resource requests and limits", async () => {

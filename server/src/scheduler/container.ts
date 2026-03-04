@@ -10,8 +10,22 @@ import { K8sDriver } from "./drivers/k8s";
 
 let driver: ContainerDriver | null = null;
 
+/** Build the env dict to pass into every worker container. */
+function buildWorkerEnv(): Record<string, string> {
+  const proxyEnv: Record<string, string> = {};
+  if (config.workerHttpProxy) {
+    proxyEnv.HTTP_PROXY = config.workerHttpProxy;
+    proxyEnv.HTTPS_PROXY = config.workerHttpProxy;
+    proxyEnv.http_proxy = config.workerHttpProxy;
+    proxyEnv.https_proxy = config.workerHttpProxy;
+  }
+  return { ...config.llmEnv, ...proxyEnv };
+}
+
 export function getContainerDriver(): ContainerDriver {
   if (driver) return driver;
+
+  const workerEnv = buildWorkerEnv();
 
   switch (config.containerDriver) {
     case "static":
@@ -23,8 +37,7 @@ export function getContainerDriver(): ContainerDriver {
         image: config.workerImage,
         dataDir: config.localDataDir,
         workerPort: config.workerPort,
-        anthropicApiKey: config.anthropicApiKey,
-        defaultModel: config.defaultModel,
+        workerEnv,
       });
       break;
 
@@ -32,23 +45,7 @@ export function getContainerDriver(): ContainerDriver {
       driver = new K8sDriver({
         namespace: config.k8s.namespace,
         workerImage: config.workerImage,
-        workerEnv: {
-          ANTHROPIC_API_KEY: config.anthropicApiKey,
-          API_KEY: config.apiKey,
-          API_BASE_URL: config.apiBaseUrl,
-          MODEL: config.defaultModel,
-          // Claude CLI reads ANTHROPIC_* env vars for authentication
-          ANTHROPIC_BASE_URL: config.apiBaseUrl,
-          ANTHROPIC_MODEL: config.defaultModel,
-          ANTHROPIC_DEFAULT_SONNET_MODEL: config.defaultModel,
-          // Pass proxy settings to worker pods if configured
-          ...(config.workerHttpProxy ? {
-            HTTP_PROXY: config.workerHttpProxy,
-            HTTPS_PROXY: config.workerHttpProxy,
-            http_proxy: config.workerHttpProxy,
-            https_proxy: config.workerHttpProxy,
-          } : {}),
-        },
+        workerEnv,
         workspaceStorage: config.k8s.workspaceStorage,
         pvcStorageClass: config.k8s.pvcStorageClass,
         resources: config.k8s.resources,

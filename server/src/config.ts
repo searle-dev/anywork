@@ -3,6 +3,37 @@ import path from "path";
 
 dotenv.config({ path: path.resolve(__dirname, "../../.env") });
 
+// ── Backward compatibility: map old var names → new ANTHROPIC_* names ──────
+const legacyMappings: [string, string][] = [
+  ["API_KEY", "ANTHROPIC_AUTH_TOKEN"],
+  ["API_BASE_URL", "ANTHROPIC_BASE_URL"],
+  ["MODEL", "ANTHROPIC_MODEL"],
+];
+
+for (const [oldName, newName] of legacyMappings) {
+  const oldVal = process.env[oldName];
+  if (oldVal !== undefined && !process.env[newName]) {
+    process.env[newName] = oldVal;
+    console.warn(
+      `[config] DEPRECATED: ${oldName} is deprecated, use ${newName} instead. ` +
+      `Auto-mapped for this run.`,
+    );
+  }
+}
+
+// ── Auto-collect all ANTHROPIC_* and CLAUDE_* env vars ─────────────────────
+function collectLlmEnv(): Record<string, string> {
+  const env: Record<string, string> = {};
+  for (const [key, value] of Object.entries(process.env)) {
+    if (value !== undefined && (key.startsWith("ANTHROPIC_") || key.startsWith("CLAUDE_"))) {
+      env[key] = value;
+    }
+  }
+  return env;
+}
+
+const llmEnv = collectLlmEnv();
+
 export const config = {
   port: parseInt(process.env.SERVER_PORT || "3001", 10),
   jwtSecret: process.env.JWT_SECRET || "dev-secret-change-me",
@@ -10,7 +41,6 @@ export const config = {
   // Worker
   workerPort: parseInt(process.env.WORKER_PORT || "8080", 10),
   workerImage: process.env.WORKER_IMAGE || "anywork-worker:latest",
-  defaultModel: process.env.DEFAULT_MODEL || "claude-sonnet-4-20250514",
 
   // Container driver: "docker" | "cloudrun" | "static" | "k8s"
   containerDriver: process.env.CONTAINER_DRIVER || "static",
@@ -25,15 +55,15 @@ export const config = {
   // Database
   databaseUrl: process.env.DATABASE_URL || "sqlite:///data/anywork.db",
 
-  // LLM keys (passed to worker)
-  anthropicApiKey: process.env.ANTHROPIC_API_KEY || "",
-  apiKey: process.env.API_KEY || process.env.ANTHROPIC_API_KEY || "",
-  apiBaseUrl: process.env.API_BASE_URL || "",
+  // LLM env vars (auto-collected, passed to workers as-is)
+  llmEnv,
 
-  // LLM for title generation (reads same .env as worker)
-  llmApiKey: process.env.API_KEY || process.env.ANTHROPIC_API_KEY || "",
-  llmApiBaseUrl: process.env.API_BASE_URL || "",
-  titleModel: process.env.TITLE_MODEL || "openai/gpt-4o-mini",
+  // Title generation (independent LLM call)
+  title: {
+    apiKey: process.env.TITLE_API_KEY || process.env.ANTHROPIC_AUTH_TOKEN || process.env.ANTHROPIC_API_KEY || "",
+    apiBaseUrl: process.env.TITLE_API_BASE_URL || process.env.ANTHROPIC_BASE_URL || "",
+    model: process.env.TITLE_MODEL || "openai/gpt-4o-mini",
+  },
 
   // ── Kubernetes driver settings ────────────────────────────────────────────
   k8s: {

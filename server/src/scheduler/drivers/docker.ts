@@ -3,8 +3,6 @@
  *
  * Manages per-session worker containers using the Docker CLI.
  * Each session gets its own container with a dedicated workspace volume mount.
- *
- * Phase 2 will add a Cloud Run driver with similar interface.
  */
 
 import { execSync, exec } from "child_process";
@@ -14,8 +12,7 @@ export class DockerDriver implements ContainerDriver {
   private image: string;
   private dataDir: string;
   private workerPort: number;
-  private anthropicApiKey: string;
-  private defaultModel: string;
+  private workerEnv: Record<string, string>;
   private containers: Map<string, WorkerEndpoint> = new Map();
   private nextPort = 18800;
 
@@ -23,14 +20,12 @@ export class DockerDriver implements ContainerDriver {
     image: string;
     dataDir: string;
     workerPort: number;
-    anthropicApiKey: string;
-    defaultModel: string;
+    workerEnv: Record<string, string>;
   }) {
     this.image = opts.image;
     this.dataDir = opts.dataDir;
     this.workerPort = opts.workerPort;
-    this.anthropicApiKey = opts.anthropicApiKey;
-    this.defaultModel = opts.defaultModel;
+    this.workerEnv = opts.workerEnv;
   }
 
   async getWorkerEndpoint(sessionId: string): Promise<WorkerEndpoint> {
@@ -53,11 +48,12 @@ export class DockerDriver implements ContainerDriver {
       execSync(`docker rm -f ${containerName} 2>/dev/null`);
     } catch {}
 
-    // Start new container
-    const envFlags = this.anthropicApiKey
-      ? `-e ANTHROPIC_API_KEY=${this.anthropicApiKey} -e DEFAULT_MODEL=${this.defaultModel}`
-      : "";
+    // Build env flags from workerEnv dict
+    const envFlags = Object.entries(this.workerEnv)
+      .map(([k, v]) => `-e ${k}=${v}`)
+      .join(" ");
 
+    // Start new container
     const cmd = [
       "docker run -d",
       `--name ${containerName}`,

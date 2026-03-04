@@ -38,10 +38,11 @@ def _build_options() -> ClaudeAgentOptions:
         except Exception as e:
             logger.warning(f"Failed to read .mcp.json: {e}")
 
-    # Collect ANTHROPIC_* env vars to pass through to the Claude CLI subprocess
+    # Collect ANTHROPIC_* and CLAUDE_* env vars to pass through to the Claude CLI subprocess
+    # Keep empty string values — e.g. ANTHROPIC_API_KEY="" is needed for third-party providers
     anthropic_env = {
         k: v for k, v in os.environ.items()
-        if k.startswith("ANTHROPIC_") and v
+        if k.startswith(("ANTHROPIC_", "CLAUDE_"))
     }
 
     opts = ClaudeAgentOptions(

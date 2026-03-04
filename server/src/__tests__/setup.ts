@@ -16,8 +16,6 @@ const tempDir = mkdtempSync(path.join(tmpdir(), "anywork-test-"));
 process.env.DB_DIR = tempDir;
 process.env.CONTAINER_DRIVER = "static";
 process.env.STATIC_WORKER_URL = "http://mock-worker:8080";
-process.env.API_KEY = "";
-process.env.API_BASE_URL = "";
 
 beforeAll(() => {
   // Ensure DB is initialised before tests run

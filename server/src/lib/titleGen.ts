@@ -2,21 +2,21 @@ import { config } from "../config";
 
 /**
  * Generate a short session title by calling the LLM API directly.
- * Uses the same OpenAI-compatible endpoint as the worker.
+ * Uses an OpenAI-compatible endpoint for title generation.
  * Returns null on any failure so callers can silently skip.
  */
 export async function generateTitle(userMessage: string): Promise<string | null> {
-  if (!config.llmApiKey || !config.llmApiBaseUrl) return null;
+  if (!config.title.apiKey || !config.title.apiBaseUrl) return null;
 
   try {
-    const response = await fetch(`${config.llmApiBaseUrl}/chat/completions`, {
+    const response = await fetch(`${config.title.apiBaseUrl}/chat/completions`, {
       method: "POST",
       headers: {
         "Content-Type": "application/json",
-        Authorization: `Bearer ${config.llmApiKey}`,
+        Authorization: `Bearer ${config.title.apiKey}`,
       },
       body: JSON.stringify({
-        model: config.titleModel,
+        model: config.title.model,
         messages: [
           {
             role: "user",

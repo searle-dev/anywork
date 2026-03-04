@@ -50,8 +50,7 @@ describe("DockerDriver", () => {
       image: "anywork-worker:latest",
       dataDir: "/tmp/test-data",
       workerPort: 8080,
-      anthropicApiKey: "sk-test",
-      defaultModel: "claude-sonnet",
+      workerEnv: { ANTHROPIC_API_KEY: "sk-test", ANTHROPIC_MODEL: "claude-sonnet" },
     });
   });
 
