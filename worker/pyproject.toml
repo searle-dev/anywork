@@ -5,7 +5,7 @@ description = "AnyWork Agent Worker - Claude Agent SDK based containerized AI ag
 requires-python = ">=3.11"
 license = { text = "MIT" }
 dependencies = [
-    "claude-agent-sdk>=0.2.0",
+    "claude-agent-sdk>=0.1.30",
     "fastapi>=0.115.0",
     "uvicorn[standard]>=0.32.0",
     "sse-starlette>=2.0.0",
