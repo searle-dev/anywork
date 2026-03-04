@@ -2,18 +2,20 @@
 
 ## 环境概览
 
-| 服务 | 地址 | 说明 |
-|------|------|------|
-| Web 前端 | http://localhost:7001 | 本地 Next.js dev server |
-| API Server | http://localhost:3001 | K8s port-forward |
-| WebSocket | ws://localhost:3001/ws | 同上 |
-| Worker Pods | K8s 集群内部 | 按 session 动态创建 |
+
+| 服务          | 地址                                             | 说明                    |
+| ----------- | ---------------------------------------------- | --------------------- |
+| Web 前端      | [http://localhost:7001](http://localhost:7001) | 本地 Next.js dev server |
+| API Server  | [http://localhost:3001](http://localhost:3001) | K8s port-forward      |
+| WebSocket   | ws://localhost:3001/ws                         | 同上                    |
+| Worker Pods | K8s 集群内部                                       | 按 session 动态创建        |
+
 
 ### 前置条件
 
 - k3d 集群 `anywork` 已运行
 - Server deployment 已部署且 port-forward 到 localhost:3001
-- anywork-secrets 已配置 API_KEY / API_BASE_URL / MODEL
+- anywork-secrets 已配置 ANTHROPIC_* 变量（见第 2 步）
 
 ---
 
@@ -33,15 +35,26 @@ npx next dev --port 7001
 ## 2. 更新 K8s Secrets（如需更改 LLM 配置）
 
 ```bash
+# 第三方平台（如 OpenRouter）配置
 kubectl -n anywork patch secret anywork-secrets -p '{"stringData":{
-  "API_KEY":"<your-openrouter-key>",
-  "API_BASE_URL":"https://openrouter.ai/api/v1",
-  "MODEL":"anthropic/claude-sonnet-4-20250514"
+  "ANTHROPIC_BASE_URL":"https://openrouter.ai/api/v1",
+  "ANTHROPIC_AUTH_TOKEN":"<your-openrouter-key>",
+  "ANTHROPIC_API_KEY":"",
+  "ANTHROPIC_MODEL":"anthropic/claude-sonnet-4-20250514"
 }}'
+
+# 如需 Title 生成（可选，不配则不生成标题）
+# kubectl -n anywork patch secret anywork-secrets -p '{"stringData":{
+#   "TITLE_API_KEY":"<your-key>",
+#   "TITLE_API_BASE_URL":"https://openrouter.ai/api/v1",
+#   "TITLE_MODEL":"openai/gpt-4o-mini"
+# }}'
 
 # 重启 server 使新环境变量生效
 kubectl -n anywork rollout restart deployment anywork-server
 ```
+
+> **注意**：`ANTHROPIC_API_KEY=""` 空值是必须的，用于告诉 Claude Code 使用第三方模式。
 
 ---
 
@@ -50,6 +63,13 @@ kubectl -n anywork rollout restart deployment anywork-server
 ```bash
 # 构建镜像（如有代理需要加 --build-arg）
 docker build -t anywork-worker:latest ./worker
+#  docker build \
+#   --build-arg http_proxy=http://localhost:7890 \
+#   --build-arg https_proxy=http://localhost:7890 \
+#   -t anywork-worker:latest ./worker
+
+
+
 
 # 导入到 k3d
 k3d image import anywork-worker:latest -c anywork
@@ -61,13 +81,13 @@ k3d image import anywork-worker:latest -c anywork
 
 ## 4. Webchat 测试
 
-1. 浏览器打开 http://localhost:7001
+1. 浏览器打开 [http://localhost:7001](http://localhost:7001)
 2. 点击左侧 "New Chat" 创建新会话
 3. 输入消息发送，例如 `请帮我写一个 hello world 的 Python 脚本`
 4. 观察：
-   - 右侧应出现 AI 回复的流式输出
-   - 消息含代码块（tool_call 事件）
-   - 最终显示 "done" 完成
+  - 右侧应出现 AI 回复的流式输出
+  - 消息含代码块（tool_call 事件）
+  - 最终显示 "done" 完成
 
 ### 预期结果
 
@@ -92,6 +112,7 @@ curl -X POST http://localhost:3001/api/channel/generic/webhook \
 ```
 
 返回值示例：
+
 ```json
 { "taskId": "xxx-xxx", "sessionId": "test-webhook-001" }
 ```
@@ -147,6 +168,24 @@ kubectl -n anywork get pods -l app=anywork-worker
 kubectl -n anywork exec -it <pod-name> -- /bin/bash
 ```
 
+### 检查环境变量（关键验证）
+
+```bash
+# 在 Pod 内执行 — 确认 ANTHROPIC_* 变量已正确透传
+env | grep ANTHROPIC
+```
+
+预期输出（第三方平台示例）：
+
+```
+ANTHROPIC_BASE_URL=https://openrouter.ai/api/v1
+ANTHROPIC_AUTH_TOKEN=sk-or-xxxxx
+ANTHROPIC_API_KEY=
+ANTHROPIC_MODEL=anthropic/claude-sonnet-4-20250514
+```
+
+> `ANTHROPIC_API_KEY=` 为空是正确的，表示第三方模式。如果缺少 `ANTHROPIC_AUTH_TOKEN` 或 `ANTHROPIC_BASE_URL`，说明 Server 的 `collectLlmEnv()` 未正确收集，检查 Server 的环境变量。
+
 ### 检查工作空间目录
 
 ```bash
@@ -185,6 +224,7 @@ cat /workspace/sessions/*.jsonl | python3 -m json.tool --no-ensure-ascii
 ```
 
 JSONL 文件中每行是一个消息对象，包含：
+
 - `role`: "user" / "assistant"
 - `content`: 消息内容（文本或 content blocks 数组）
 - `timestamp`: ISO 8601 时间戳
@@ -221,3 +261,4 @@ kubectl -n anywork delete pods -l app=anywork-worker
 # 完全清理
 kubectl delete namespace anywork
 ```
+
