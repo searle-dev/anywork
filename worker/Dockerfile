@@ -1,13 +1,17 @@
 FROM node:22-slim AS node-base
 
+# Pre-install Claude CLI in the node stage so npm/npx are intact
+RUN npm install -g @anthropic-ai/claude-code
+
 FROM python:3.12-slim-bookworm
 
 WORKDIR /app
 
-# Copy Node.js from official image (avoids nodesource network dependency)
+# Copy entire Node.js runtime + globally installed packages (including claude CLI)
 COPY --from=node-base /usr/local/bin/node /usr/local/bin/node
 COPY --from=node-base /usr/local/bin/npx /usr/local/bin/npx
 COPY --from=node-base /usr/local/bin/npm /usr/local/bin/npm
+COPY --from=node-base /usr/local/bin/claude /usr/local/bin/claude
 COPY --from=node-base /usr/local/lib/node_modules /usr/local/lib/node_modules
 
 # Install system dependencies (git for skills, curl for health checks)
