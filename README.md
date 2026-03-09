@@ -1,60 +1,51 @@
 # AnyWork
 
-Open-source cloud-native AI Agent platform. Each user gets a dedicated container running [nanobot](https://github.com/HKUDS/nanobot) with a persistent workspace — like having your own AI-powered computer in the cloud.
+[中文](README.zh.md) | English
 
-**Features**
-- Chat with an AI agent that can read/write files, run code, and search the web
-- Session auto-naming: conversations are titled automatically by LLM as you start them
-- Workspace editor: customize the agent's persona (SOUL.md) and capabilities (AGENTS.md) from the web UI
-- Persistent workspace: files and conversation history survive across sessions
+Open-source cloud-native AI Agent scheduling and execution engine. Receives task requests from various channels (web chat, GitHub webhooks, Slack, etc.), schedules isolated worker containers running Claude Agent SDK, and streams results back.
+
+AnyWork is **not** a user platform — it has no user management, auth, or billing. Those are handled by the deploying product layer.
 
 ## How it works
 
 ```
-You  -->  Web UI (Next.js)  -->  API Server  -->  Container (nanobot agent)
-                                                        |
-                                                   NAS / Volume
-                                                   (your files, chat history, skills)
+Channel  →  Task  →  Dispatcher  →  Worker (Claude Agent SDK)
+                                          |
+                                     MCP / Skills
 ```
 
-1. You open the web interface and start a conversation
-2. The server schedules a container for you (or reuses an existing one)
-3. Inside the container, nanobot runs an agent loop with access to your workspace
-4. Your conversation history, files, and custom skills persist between sessions
+1. A channel (webchat, GitHub, Slack…) receives an event and creates a Task
+2. The Dispatcher resolves skills + MCP config, then calls `/prepare` and `/chat` on a Worker
+3. The Worker runs Claude Agent SDK in an isolated container, streaming SSE events back
+4. The server relays the stream to the browser via WebSocket (or pushes to a webhook for oneshot channels)
 
 ## Quick Start
 
 ### Prerequisites
 
 - Docker & Docker Compose
-- An API key from a supported LLM provider (Anthropic, OpenAI, DeepSeek, etc.)
+- An API key from Anthropic (or an OpenAI-compatible provider via OpenRouter, etc.)
 
 ### Run locally
 
 ```bash
-# Clone the repo
 git clone https://github.com/searle-dev/anywork.git
 cd anywork
 
-# Set up environment
 cp .env.example .env
-# Edit .env and add your ANTHROPIC_API_KEY (or other provider key)
+# Edit .env — fill in ANTHROPIC_API_KEY (or ANTHROPIC_AUTH_TOKEN + ANTHROPIC_BASE_URL)
 
-# Start everything
 docker compose up --build
-
 # Open http://localhost:7000
 ```
 
 ### Run without Docker (development)
 
 ```bash
-# Install dependencies
 cd worker && pip install -e . && cd ..
 cd server && npm install && cd ..
 cd web && npm install && cd ..
 
-# Start all services
 bash scripts/dev.sh
 ```
 
@@ -62,65 +53,115 @@ bash scripts/dev.sh
 
 ```
 anywork/
-├── web/           # Next.js frontend - chat UI
-├── server/        # Node.js API server - routing, scheduling, WebSocket
-├── worker/        # Python worker - nanobot agent in a container
-├── deploy/        # Cloud deployment configs (GCP, etc.)
-└── docs/          # Documentation
+├── web/       # Next.js 15 + React 19 + Tailwind + Zustand  (port 7000)
+├── server/    # Express + ws + better-sqlite3 + TypeScript   (port 3001)
+├── worker/    # FastAPI + Claude Agent SDK                   (port 8080)
+├── deploy/    # K8s manifests + cloud deployment configs
+├── docs/      # Architecture & design docs
+└── scripts/   # Dev/build helpers
 ```
 
 ### Key design decisions
 
-**Container-per-user model**: Each user gets an isolated container with its own filesystem. This provides security isolation and allows the agent to freely read/write files without affecting other users.
+**Channel abstraction**: Any event source (webchat, GitHub, Slack) implements the same `Channel` interface — `verify()`, `toTaskRequest()`, optionally `deliver()`. New integrations are one file.
 
-**nanobot as agent runtime**: We use a fork of [HKUDS/nanobot](https://github.com/HKUDS/nanobot) (MIT, ~4000 lines, 11+ LLM providers, MCP support). Our customizations live in `worker/anywork_adapter/` to keep the fork easily updatable.
+**Claude Agent SDK per session**: One `ClaudeSDKClient` instance per session, one `query()` call per task. The worker is stateless between tasks but stateful within a session via conversation history.
 
-**Driver abstraction**: Container scheduling and storage are abstracted behind interfaces, making it easy to swap between local Docker (development) and Google Cloud Run + Filestore (production).
+**Driver pattern for container scheduling**: `ContainerDriver` interface with three implementations — `static` (docker-compose), `docker` (per-session containers), `k8s` (per-session Pods). Swap at runtime via `CONTAINER_DRIVER`.
 
-**WebSocket + SSE bridge**: The browser connects via WebSocket to the API server, which communicates with the worker via HTTP/SSE. This decouples the frontend from the agent runtime.
+**Skills via /prepare**: Before each task, the server resolves Agent Skills and writes them to the workspace. Claude Code discovers `SKILL.md` files natively.
 
-## Deployment
+**MCP via .mcp.json**: The server generates `.mcp.json` per task and the worker injects it into the workspace before running the agent.
 
-### Local (Docker Compose)
-
-The default `docker-compose.yml` runs everything locally with Docker volumes for persistence.
-
-### Google Cloud Run + Filestore (Phase 2)
-
-See `deploy/gcloud/` for Cloud Run service definitions and Filestore setup. The same codebase runs in both environments — just swap the container driver from `static` to `cloudrun`.
+**WebSocket + SSE bridge**: Browser ↔ WebSocket ↔ Server ↔ HTTP/SSE ↔ Worker.
 
 ## Configuration
 
-All configuration is via environment variables (see `.env.example`):
+Copy `.env.example` to `.env` and fill in your values.
+
+### LLM provider
+
+```bash
+# Option A: Anthropic official
+ANTHROPIC_API_KEY=sk-ant-xxxxx
+
+# Option B: Third-party (e.g. OpenRouter)
+ANTHROPIC_BASE_URL=https://openrouter.ai/api/v1
+ANTHROPIC_AUTH_TOKEN=sk-or-xxxxx
+ANTHROPIC_API_KEY=                              # empty string required
+ANTHROPIC_MODEL=anthropic/claude-sonnet-4-20250514
+```
+
+All `ANTHROPIC_*` and `CLAUDE_*` variables are automatically passed through to worker containers.
+
+### Key variables
 
 | Variable | Description | Default |
 |----------|-------------|---------|
-| `API_KEY` | LLM provider API key | - |
-| `API_BASE_URL` | OpenAI-compatible endpoint | - |
-| `MODEL` | Agent model (e.g. `anthropic/claude-sonnet-4-20250514`) | - |
-| `TITLE_MODEL` | Model for session title generation | `openai/gpt-4o-mini` |
-| `CONTAINER_DRIVER` | `static` / `docker` / `cloudrun` | `static` |
-| `BRAVE_API_KEY` | Brave Search API key (enables web search) | - |
+| `ANTHROPIC_API_KEY` | Anthropic API key | — |
+| `ANTHROPIC_MODEL` | Agent model | — |
+| `TITLE_MODEL` | Model for session title generation | falls back to agent model |
+| `CONTAINER_DRIVER` | `static` / `docker` / `k8s` | `static` |
+| `K8S_NAMESPACE` | Kubernetes namespace for worker Pods | `anywork` |
+| `K8S_WORKSPACE_STORAGE` | `emptydir` or `pvc` | `emptydir` |
+| `K8S_IDLE_TTL_SECONDS` | Seconds before idle worker is GC'd | `1800` |
+| `SERVER_PORT` | API server port | `3001` |
 
-## Roadmap
+## Deployment
 
-- [x] Phase 1: Local Docker development environment
-- [x] Session auto-naming (LLM generates title in parallel with agent response)
-- [x] Workspace editor UI (SOUL.md / AGENTS.md editable from browser)
-- [ ] Phase 2: Google Cloud Run + Filestore deployment
-- [ ] Phase 3: OAuth login, Skills marketplace, MCP integration
-- [ ] File upload/download in chat
-- [ ] Container pre-warming pool
+### Level 0 — docker-compose (local)
+
+Default. Runs everything locally with a single static worker container.
+
+```bash
+docker compose up --build
+```
+
+### Level 1 — local Kubernetes (K3s / Kind)
+
+```bash
+CONTAINER_DRIVER=k8s
+K8S_NAMESPACE=anywork
+K8S_WORKSPACE_STORAGE=emptydir
+```
+
+See `deploy/` for manifests.
+
+### Level 2 — cloud Kubernetes (GKE / EKS / AKS)
+
+Use `K8S_WORKSPACE_STORAGE=pvc` for persistent per-session workspaces. See `deploy/` for production manifests and configuration.
+
+## Extending AnyWork
+
+### Add a new channel
+
+1. Create `server/src/channel/mychannel.ts` implementing the `Channel` interface
+2. Implement `verify()` (signature check), `toTaskRequest()`, optionally `deliver()`
+3. Register in `server/src/index.ts` with `registerChannel()`
+
+### Add a custom tool to the worker
+
+```python
+from claude_agent_sdk import tool, create_sdk_mcp_server
+
+@tool("my_tool", "Description", {"param": str})
+async def my_tool(args):
+    return {"content": [{"type": "text", "text": "result"}]}
+
+server = create_sdk_mcp_server("my-server", tools=[my_tool])
+# Pass to ClaudeAgentOptions.mcp_servers
+```
+
+### Add a new container driver
+
+1. Create `server/src/scheduler/drivers/newdriver.ts` implementing `ContainerDriver`
+2. Add a case in `server/src/scheduler/container.ts`
+3. Add config vars in `server/src/config.ts`
 
 ## Contributing
 
-Contributions welcome! Please open an issue first to discuss what you'd like to change.
+Contributions welcome. Please open an issue first to discuss what you'd like to change.
 
 ## License
 
 [MIT](LICENSE)
-
-## Acknowledgements
-
-- [nanobot](https://github.com/HKUDS/nanobot) by HKUDS - the ultra-lightweight agent runtime
-- Inspired by [Claude Cowork](https://claude.ai), [OpenHands](https://github.com/OpenHands/OpenHands), and [Replit Agent](https://replit.com)
